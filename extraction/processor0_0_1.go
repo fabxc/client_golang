@@ -72,6 +72,8 @@ func (p *processor001) ProcessSingle(in io.Reader, out Ingester, o *ProcessOptio
 	for _, entity := range entities {
 		for _, value := range entity.Metric.Value {
 			labels := labelSet(entity.BaseLabels).Merge(labelSet(value.Labels))
+			labels[model.MetricNameLabel] = labels[model.LegacyMetricNameLabel]
+			delete(labels, model.LegacyMetricNameLabel)
 
 			switch entity.Metric.MetricType {
 			case gauge001, counter001:
