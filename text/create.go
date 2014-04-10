@@ -26,7 +26,9 @@ import (
 
 // MetricFamilyToText converts a MetricFamily proto message into text format and
 // writes the resulting lines to 'out'. It returns the number of bytes written
-// and any error encountered.
+// and any error encountered.  This function does not perform checks on the
+// content of the metric and label names, i.e. invalid metric or label names
+// will result in invalid text format output.
 func MetricFamilyToText(in *dto.MetricFamily, out io.Writer) (int, error) {
 	var written int
 
@@ -44,7 +46,9 @@ func MetricFamilyToText(in *dto.MetricFamily, out io.Writer) (int, error) {
 
 	// Comments, first HELP, then TYPE.
 	if in.Help != nil {
-		n, err := fmt.Fprintf(out, "# HELP %s %s\n", name, *in.Help)
+		n, err := fmt.Fprintf(
+			out, "# HELP %s %s\n",
+			name, strings.Replace(*in.Help, "\n", `\n`, -1))
 		written += n
 		if err != nil {
 			return written, err
@@ -102,7 +106,32 @@ func MetricFamilyToText(in *dto.MetricFamily, out io.Writer) (int, error) {
 					"expected summary in metric %s", metric,
 				)
 			}
-			// TODO write the various summary values.
+			for _, q := range metric.Summary.Quantile {
+				n, err = writeSample(
+					name, metric,
+					"quantile", fmt.Sprint(q.GetQuantile()),
+					q.GetValue(),
+					out,
+				)
+				if err != nil {
+					return written, err
+				}
+				written += n
+			}
+			n, err = writeSample(
+				name+"_sum", metric, "", "",
+				metric.Summary.GetSampleSum(),
+				out,
+			)
+			if err != nil {
+				return written, err
+			}
+			written += n
+			n, err = writeSample(
+				name+"_count", metric, "", "",
+				float64(metric.Summary.GetSampleCount()),
+				out,
+			)
 		default:
 			return written, fmt.Errorf(
 				"unexpected type in metric %s", metric,
@@ -116,6 +145,10 @@ func MetricFamilyToText(in *dto.MetricFamily, out io.Writer) (int, error) {
 	return written, nil
 }
 
+// writeSample writes a single sample in text formet to out, given the metric
+// name, the metric proto message itself, optionally an additonal label name and
+// value (use empty strings if not required), and the value. The function
+// returns the number of bytes written and any error encountered.
 func writeSample(
 	name string,
 	metric *dto.Metric,
