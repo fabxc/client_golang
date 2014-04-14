@@ -177,7 +177,7 @@ func TextToMetricFamilies(in io.Reader) (map[string]*dto.MetricFamily, error) {
 			return nil // Unexpected end of input.
 		}
 		setOrCreateCurrentMF(currentToken.String())
-		return readingLabels
+		return startLabels
 	}
 
 	startOfLine = func() stateFn {
