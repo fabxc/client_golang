@@ -46,37 +46,57 @@ func TextToMetricFamilies(in io.Reader) (map[string]*dto.MetricFamily, error) {
 	result := map[string]*dto.MetricFamily{}
 	buf := bufio.NewReader(in)
 
-	// Variables to keep track of state.
+	///////////////////////////////////////
+	// Variables to keep track of state. //
+	///////////////////////////////////////
 	var (
-		err          error
-		nextState    stateFn
-		lineCount    int
-		currentByte  byte // The most recent byte read.
-		currentToken bytes.Buffer
-		currentMF    *dto.MetricFamily
+		err              error
+		nextState        stateFn
+		lineCount        int
+		currentByte      byte // The most recent byte read.
+		currentToken     bytes.Buffer
+		currentMF        *dto.MetricFamily
+		currentMetric    *dto.Metric
+		currentLabelPair *dto.LabelPair
 
-		readingMetricName, readingHelp, readingType,
-		startComment, startOfLine stateFn
+		// State functions.
+		// A state function marks a current state. When it is called,
+		// it transitions the current state into a new one and
+		// returns a corresponding new state function.
+		// There are two types of state functions:
+		// (1) startX: We have read everything belonging to the previous
+		//     token. The next byte read from buf is X or a tab or blank
+		//     leading into X.
+		// (2) readingX: First byte of X is already read into
+		//     currentByte.
+		startOfLine, startComment, startLabelName, startLabelValue,
+		readingMetricName, readingLabels, readingValue,
+		readingHelp, readingType stateFn
 	)
 
-	// Helper functions that acces state variables and are therefore
-	// closures.
+	/////////////////////////////////////////////////////////////
+	// Helper functions that access and modify state variables //
+	// and are therefore implemented as closures.              //
+	/////////////////////////////////////////////////////////////
+	parseError := func(msg string) {
+		err = ParseError{
+			Line: lineCount,
+			Msg:  msg,
+		}
+	}
 
 	setOrCreateCurrentMF := func(name string) {
-		mf, ok := result[name]
+		currentMF, ok := result[name]
 		if !ok {
-			mf = &dto.MetricFamily{Name: proto.String(name)}
-			result[name] = mf
+			currentMF = &dto.MetricFamily{Name: proto.String(name)}
+			result[name] = currentMF
 		}
-		currentMF = mf
 	}
 
 	skipBlankTab := func() {
 		for {
-			if currentByte, err = buf.ReadByte(); err != nil {
-				return
-			}
-			if !isBlankOrTab(currentByte) {
+			currentByte, err = buf.ReadByte()
+			if err != nil || !isBlankOrTab(currentByte) {
 				return
 			}
 		}
@@ -84,11 +104,9 @@ func TextToMetricFamilies(in io.Reader) (map[string]*dto.MetricFamily, error) {
 
 	readTokenUntilWhitespace := func() {
 		currentToken.Reset()
-		for currentByte != ' ' && currentByte != '\t' && currentByte != '\n' {
+		for err == nil && currentByte != ' ' && currentByte != '\t' && currentByte != '\n' {
 			currentToken.WriteByte(currentByte)
-			if currentByte, err = buf.ReadByte(); err != nil {
-				return
-			}
+			currentByte, err = buf.ReadByte()
 		}
 	}
 
@@ -99,17 +117,84 @@ func TextToMetricFamilies(in io.Reader) (map[string]*dto.MetricFamily, error) {
 		}
 		for {
 			currentToken.WriteByte(currentByte)
-			if currentByte, err = buf.ReadByte(); err != nil {
-				return
-			}
-			if !isValidMetricNameContinuation(currentByte) {
+			currentByte, err = buf.ReadByte()
+			if err != nil || !isValidMetricNameContinuation(currentByte) {
 				return
 			}
 		}
 	}
 
-	// State functions implemented as closures to avoid passing around a
-	// struct for state tracking.
+	readTokenAsLabelName := func() {
+		currentToken.Reset()
+		if !isValidLabelNameStart(currentByte) {
+			return
+		}
+		for {
+			currentToken.WriteByte(currentByte)
+			currentByte, err = buf.ReadByte()
+			if err != nil || !isValidLabelNameContinuation(currentByte) {
+				return
+			}
+		}
+	}
+
+	readTokenAsLabelValue := func() {
+		currentToken.Reset()
+		escaped := false
+		// Note that we start with reading a byte here, in contrast to
+		// the other 'readTokenAs...' functions, which start with the
+		// last read byte.
+		for {
+			if currentByte, err = buf.ReadByte(); err != nil {
+				return
+			}
+			if escaped {
+				switch currentByte {
+				case '"', '\\':
+					currentToken.WriteByte(currentByte)
+				case 'n':
+					currentToken.WriteByte('\n')
+				default:
+					parseError(fmt.Sprintf("invalid escape sequence '\\%c'", currentByte))
+					return
+				}
+				escaped = false
+				continue
+			}
+			switch currentByte {
+			case '"':
+				return
+			case '\n':
+				parseError(fmt.Sprintf("label value %q contains unescaped new-line", currentToken.String()))
+				return
+			case '\\':
+				escaped = true
+			default:
+				currentToken.WriteByte(currentByte)
+			}
+		}
+	}
+
+	///////////////////////////////////////////////////////
+	// State functions, implemented as closures to avoid //
+	// passing around a struct for state tracking.       //
+	///////////////////////////////////////////////////////
+	startOfLine = func() stateFn {
+		lineCount++
+		if skipBlankTab(); err != nil {
+			// End of input reached. This is the only case where
+			// that is not an error but a signal that we are done.
+			err = nil
+			return nil
+		}
+		switch currentByte {
+		case '#':
+			return startComment
+		case '\n':
+			return startOfLine // Empty line, start the next one.
+		}
+		return readingMetricName
+	}
 
 	startComment = func() stateFn {
 		if skipBlankTab(); err != nil {
@@ -149,10 +234,8 @@ func TextToMetricFamilies(in io.Reader) (map[string]*dto.MetricFamily, error) {
 			return startOfLine
 		}
 		if !isBlankOrTab(currentByte) {
-			err = ParseError{
-				Line: lineCount,
-				Msg:  "invalid metric name in comment",
-			}
+			parseError("invalid metric name in comment")
+			return nil
 		}
 		setOrCreateCurrentMF(currentToken.String())
 		if skipBlankTab(); err != nil {
@@ -172,37 +255,97 @@ func TextToMetricFamilies(in io.Reader) (map[string]*dto.MetricFamily, error) {
 		panic(fmt.Sprintf("code error: unexpected keyword %q", keyword))
 	}
 
+	startLabelName = func() stateFn {
+		if skipBlankTab(); err != nil {
+			return nil // Unexpected end of input.
+		}
+		if currentByte == '}' {
+			if skipBlankTab(); err != nil {
+				return nil // Unexpected end of input.
+			}
+			return readingValue
+		}
+		if readTokenAsLabelName(); err != nil {
+			return nil // Unexpected end of input.
+		}
+		if currentToken.Len() == 0 {
+			parseError(fmt.Sprintf("invalid label name for metric %q", currentMF.GetName()))
+			return nil
+		}
+		currentLabelPair = &dto.LabelPair{Name: proto.String(currentToken.String())}
+		currentMetric.Label = append(currentMetric.Label, currentLabelPair)
+		if isBlankOrTab(currentByte) {
+			if skipBlankTab(); err != nil {
+				return nil // Unexpected end of input.
+			}
+		}
+		if currentByte != '=' {
+			parseError(fmt.Sprintf("expected '=' after label name, found %q", currentByte))
+			return nil
+		}
+		return startLabelValue
+	}
+
+	startLabelValue = func() stateFn {
+		if skipBlankTab(); err != nil {
+			return nil // Unexpected end of input.
+		}
+		if currentByte != '"' {
+			parseError(fmt.Sprintf("expected '\"' at start of label value, found %q", currentByte))
+			return nil
+		}
+		if readTokenAsLabelValue(); err != nil {
+			return nil
+		}
+		currentLabelPair.Value = proto.String(currentToken.String())
+		if skipBlankTab(); err != nil {
+			return nil // Unexpected end of input.
+		}
+		switch currentByte {
+		case ',':
+			return startLabelName
+
+		case '}':
+			if skipBlankTab(); err != nil {
+				return nil // Unexpected end of input.
+			}
+			return readingValue
+		default:
+			parseError(fmt.Sprintf("unexpected end of label value %q", currentLabelPair.Value))
+			return nil
+		}
+	}
+
 	readingMetricName = func() stateFn {
 		if readTokenAsMetricName(); err != nil {
 			return nil // Unexpected end of input.
 		}
 		setOrCreateCurrentMF(currentToken.String())
-		return startLabels
+		currentMetric = &dto.Metric{}
+		currentMF.Metric = append(currentMF.Metric, currentMetric)
+		if isBlankOrTab(currentByte) {
+			if skipBlankTab(); err != nil {
+				return nil // Unexpected end of input.
+			}
+		}
+		return readingLabels
 	}
 
-	startOfLine = func() stateFn {
-		lineCount++
-		if skipBlankTab(); err != nil {
-			// End of input reached. This is the only case where
-			// that is not an error, but signals that we are done.
-			err = nil
-			return nil
+	readingLabels = func() stateFn {
+		if currentByte != '{' {
+			return readingValue
 		}
-		switch currentByte {
-		case '#':
-			return startComment
-		case '\n':
-			return startOfLine // Empty line, start the next one.
-		}
-		return readingMetricName
+		return startLabelName
+	}
+
+	readingValue = func() stateFn {
+		// TODO
+		return nil
 	}
 
 	readingHelp = func() stateFn {
 		if currentMF.Help != nil {
-			err = ParseError{
-				Line: lineCount,
-				Msg:  fmt.Sprintf("second HELP line for metric name %q", currentMF.GetName()),
-			}
+			parseError(fmt.Sprintf("second HELP line for metric name %q", currentMF.GetName()))
 			return nil
 		}
 		// Rest of line is the docstring.
@@ -216,10 +359,7 @@ func TextToMetricFamilies(in io.Reader) (map[string]*dto.MetricFamily, error) {
 
 	readingType = func() stateFn {
 		if currentMF.Type != nil {
-			err = ParseError{
-				Line: lineCount,
-				Msg:  fmt.Sprintf("second TYPE line for metric name %q, or TYPE reported after samples", currentMF.GetName()),
-			}
+			parseError(fmt.Sprintf("second TYPE line for metric name %q, or TYPE reported after samples", currentMF.GetName()))
 			return nil
 		}
 		// Rest of line is the type.
@@ -229,17 +369,18 @@ func TextToMetricFamilies(in io.Reader) (map[string]*dto.MetricFamily, error) {
 		}
 		metricType, ok := dto.MetricType_value[strings.ToUpper(typeString[:len(typeString)-1])]
 		if !ok {
-			err = ParseError{
-				Line: lineCount,
-				Msg:  fmt.Sprintf("unknown metric type %q set for metric name %q", typeString[:len(typeString)-1], currentMF.GetName()),
-			}
+			parseError(fmt.Sprintf("unknown metric type %q set for metric name %q", typeString[:len(typeString)-1], currentMF.GetName()))
 			return nil
 		}
 		currentMF.Type = dto.MetricType(metricType).Enum()
 		return startOfLine
 	}
 
-	// Finally start the parsing loop.
+	//////////////////////////////////////////////////////////////////////////////////
+	// Closure definitions done. Finally the normal code of the top-level function. //
+	//////////////////////////////////////////////////////////////////////////////////
+
+	// Start the parsing loop.
 	nextState = startOfLine
 	for nextState != nil {
 		nextState = nextState()
@@ -254,20 +395,20 @@ func TextToMetricFamilies(in io.Reader) (map[string]*dto.MetricFamily, error) {
 	return result, err
 }
 
-func isValidIdentifierStart(b byte) bool {
+func isValidLabelNameStart(b byte) bool {
 	return (b >= 'a' && b <= 'z') || (b >= 'A' && b >= 'Z') || b == '_'
 }
 
-func isValidIdentifierContinuation(b byte) bool {
-	return isValidIdentifierStart(b) || (b >= '0' && b <= '9')
+func isValidLabelNameContinuation(b byte) bool {
+	return isValidLabelNameStart(b) || (b >= '0' && b <= '9')
 }
 
 func isValidMetricNameStart(b byte) bool {
-	return isValidIdentifierStart(b) || b == ':'
+	return isValidLabelNameStart(b) || b == ':'
 }
 
 func isValidMetricNameContinuation(b byte) bool {
-	return isValidIdentifierContinuation(b) || b == ':'
+	return isValidLabelNameContinuation(b) || b == ':'
 }
 
 func isBlankOrTab(b byte) bool {
