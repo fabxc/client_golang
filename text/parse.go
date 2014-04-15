@@ -30,16 +30,19 @@ import (
 
 type stateFn func() stateFn
 
+// ParseError signals errors during parsing the simple and flat text-based
+// exchange format.
 type ParseError struct {
 	Line int
 	Msg  string
 }
 
+// Error implements the error interface.
 func (e ParseError) Error() string {
 	return fmt.Sprintf("text format parsing error in line %d: %s", e.Line, e.Msg)
 }
 
-// TextToMetricFamilies reads 'in' as the simple and flate text-based exchange
+// TextToMetricFamilies reads 'in' as the simple and flat text-based exchange
 // format and creates MetricFamily proto messages. It returns the MetricFamily
 // proto messages in a map where the metric names are the keys, along with any
 // error encountered. If the input contains duplicate metrics (i.e. lines with
@@ -73,15 +76,16 @@ func TextToMetricFamilies(in io.Reader) (map[string]*dto.MetricFamily, error) {
 		//     leading into X.
 		// (2) readingX: First byte of X is already read into
 		//     currentByte.
-		startOfLine, startComment, startLabelName, startLabelValue,
+		startOfLine, startComment, startLabelName, startLabelValue, startTimestamp,
 		readingMetricName, readingLabels, readingValue,
 		readingHelp, readingType stateFn
 	)
 
 	// Weird stuff only needed for metric type Summary.
-	summaries := map[uint64]*dto.Metric{} // Key is created with labelsToSignature.
-	currentLabels := map[string]string{}  // All labels except 'quantile'.
+	summaries := map[uint64]*dto.Metric{} // Key is created with LabelsToSignature.
+	currentLabels := map[string]string{}  // All labels including '__name__' but excluding 'quantile'.
 	currentQuantile := math.NaN()
+	var currentIsSummaryCount, currentIsSummarySum bool
 
 	/////////////////////////////////////////////////////////////
 	// Helper functions that access and modify state variables //
@@ -95,11 +99,26 @@ func TextToMetricFamilies(in io.Reader) (map[string]*dto.MetricFamily, error) {
 	}
 
 	setOrCreateCurrentMF := func(name string) {
-		currentMF, ok := result[name]
-		if !ok {
-			currentMF = &dto.MetricFamily{Name: proto.String(name)}
-			result[name] = currentMF
+		currentIsSummaryCount = false
+		currentIsSummarySum = false
+		if currentMF = result[name]; currentMF != nil {
+			return
 		}
+		// Try out if this is a _sum or _count for a summary.
+		summaryName := summaryMetricName(name)
+		if currentMF = result[summaryName]; currentMF != nil {
+			if currentMF.GetType() == dto.MetricType_SUMMARY {
+				if isCount(name) {
+					currentIsSummaryCount = true
+				}
+				if isSum(name) {
+					currentIsSummarySum = true
+				}
+				return
+			}
+		}
+		currentMF = &dto.MetricFamily{Name: proto.String(name)}
+		result[name] = currentMF
 	}
 
 	skipBlankTab := func() {
@@ -114,6 +133,14 @@ func TextToMetricFamilies(in io.Reader) (map[string]*dto.MetricFamily, error) {
 	readTokenUntilWhitespace := func() {
 		currentToken.Reset()
 		for err == nil && currentByte != ' ' && currentByte != '\t' && currentByte != '\n' {
+			currentToken.WriteByte(currentByte)
+			currentByte, err = buf.ReadByte()
+		}
+	}
+
+	readTokenUntilNewline := func() {
+		currentToken.Reset()
+		for err == nil && currentByte != '\n' {
 			currentToken.WriteByte(currentByte)
 			currentByte, err = buf.ReadByte()
 		}
@@ -282,6 +309,10 @@ func TextToMetricFamilies(in io.Reader) (map[string]*dto.MetricFamily, error) {
 			return nil
 		}
 		currentLabelPair = &dto.LabelPair{Name: proto.String(currentToken.String())}
+		if currentLabelPair.GetName() == string(model.MetricNameLabel) {
+			parseError(fmt.Sprintf("label name %q is reserved", model.MetricNameLabel))
+			return nil
+		}
 		// Once more, special summary treatment... Don't add 'quantile'
 		// labels to 'real' labels.
 		if currentMF.GetType() != dto.MetricType_SUMMARY ||
@@ -339,6 +370,30 @@ func TextToMetricFamilies(in io.Reader) (map[string]*dto.MetricFamily, error) {
 		}
 	}
 
+	startTimestamp = func() stateFn {
+		if skipBlankTab(); err != nil {
+			return nil // Unexpected end of input.
+		}
+		if readTokenUntilWhitespace(); err != nil {
+			return nil // Unexpected end of input.
+		}
+		timestamp, err := strconv.ParseInt(currentToken.String(), 10, 64)
+		if err != nil {
+			// Create a more helpful error message.
+			parseError(fmt.Sprintf("expected integer as timestamp, got %q", currentToken.String()))
+			return nil
+		}
+		currentMetric.TimestampMs = proto.Int64(timestamp)
+		if readTokenUntilNewline(); err != nil {
+			return nil // Unexpected end of input.
+		}
+		if currentToken.Len() > 0 {
+			parseError(fmt.Sprintf("spurious string after timestamp: %q", currentToken.String()))
+			return nil
+		}
+		return startOfLine
+	}
+
 	readingMetricName = func() stateFn {
 		if readTokenAsMetricName(); err != nil {
 			return nil // Unexpected end of input.
@@ -381,16 +436,60 @@ func TextToMetricFamilies(in io.Reader) (map[string]*dto.MetricFamily, error) {
 	readingValue = func() stateFn {
 		// When we are here, we have read all the labels, so for the
 		// infamous special case of a summary, we can finally find out
-		// if the metric already exists. Otherwise, we can now add the
-		// currentMetric to currentMF.Metric.
+		// if the metric already exists.
 		if currentMF.GetType() == dto.MetricType_SUMMARY {
-			signature := prometheus.labelsToSignature(currentLabels)
+			signature := prometheus.LabelsToSignature(currentLabels)
+			if summary := summaries[signature]; summary != nil {
+				currentMetric = summary
+			} else {
+				summaries[signature] = currentMetric
+				currentMF.Metric = append(currentMF.Metric, currentMetric)
+			}
 		} else {
 			currentMF.Metric = append(currentMF.Metric, currentMetric)
 		}
-
-		// TODO (not only value reading, also deal with Summary complexity)
-		return nil
+		if readTokenUntilWhitespace(); err != nil {
+			return nil // Unexpected end of input.
+		}
+		value, err := strconv.ParseFloat(currentToken.String(), 64)
+		if err != nil {
+			// Create a more helpful error message.
+			parseError(fmt.Sprintf("expected float as value, got %q", currentToken.String()))
+			return nil
+		}
+		switch currentMF.GetType() {
+		case dto.MetricType_COUNTER:
+			currentMetric.Counter = &dto.Counter{Value: proto.Float64(value)}
+		case dto.MetricType_GAUGE:
+			currentMetric.Gauge = &dto.Gauge{Value: proto.Float64(value)}
+		case dto.MetricType_CUSTOM:
+			currentMetric.Custom = &dto.Custom{Value: proto.Float64(value)}
+		case dto.MetricType_SUMMARY:
+			// *sigh*
+			if currentMetric.Summary == nil {
+				currentMetric.Summary = &dto.Summary{}
+			}
+			switch {
+			case currentIsSummaryCount:
+				currentMetric.Summary.SampleCount = proto.Uint64(uint64(value))
+			case currentIsSummarySum:
+				currentMetric.Summary.SampleSum = proto.Float64(value)
+			case !math.IsNaN(currentQuantile):
+				currentMetric.Summary.Quantile = append(
+					currentMetric.Summary.Quantile,
+					&dto.Quantile{
+						Quantile: proto.Float64(currentQuantile),
+						Value:    proto.Float64(value),
+					},
+				)
+			}
+		default:
+			err = fmt.Errorf("unexpected type for metric name %q", currentMF.GetName())
+		}
+		if currentByte == '\n' {
+			return startOfLine
+		}
+		return startTimestamp
 	}
 
 	readingHelp = func() stateFn {
@@ -399,11 +498,10 @@ func TextToMetricFamilies(in io.Reader) (map[string]*dto.MetricFamily, error) {
 			return nil
 		}
 		// Rest of line is the docstring.
-		help, err := buf.ReadString('\n')
-		if err != nil {
+		if readTokenUntilNewline(); err != nil {
 			return nil // Unexpected end of input.
 		}
-		currentMF.Help = proto.String(help[:len(help)-1])
+		currentMF.Help = proto.String(currentToken.String())
 		return startOfLine
 	}
 
@@ -413,13 +511,12 @@ func TextToMetricFamilies(in io.Reader) (map[string]*dto.MetricFamily, error) {
 			return nil
 		}
 		// Rest of line is the type.
-		typeString, err := buf.ReadString('\n')
-		if err != nil {
+		if readTokenUntilNewline(); err != nil {
 			return nil // Unexpected end of input.
 		}
-		metricType, ok := dto.MetricType_value[strings.ToUpper(typeString[:len(typeString)-1])]
+		metricType, ok := dto.MetricType_value[strings.ToUpper(currentToken.String())]
 		if !ok {
-			parseError(fmt.Sprintf("unknown metric type %q set for metric name %q", typeString[:len(typeString)-1], currentMF.GetName()))
+			parseError(fmt.Sprintf("unknown metric type %q", currentToken.String()))
 			return nil
 		}
 		currentMF.Type = dto.MetricType(metricType).Enum()
@@ -446,7 +543,7 @@ func TextToMetricFamilies(in io.Reader) (map[string]*dto.MetricFamily, error) {
 }
 
 func isValidLabelNameStart(b byte) bool {
-	return (b >= 'a' && b <= 'z') || (b >= 'A' && b >= 'Z') || b == '_'
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || b == '_'
 }
 
 func isValidLabelNameContinuation(b byte) bool {
@@ -463,4 +560,23 @@ func isValidMetricNameContinuation(b byte) bool {
 
 func isBlankOrTab(b byte) bool {
 	return b == ' ' || b == '\t'
+}
+
+func isCount(name string) bool {
+	return len(name) > 6 && name[len(name)-6:] == "_count"
+}
+
+func isSum(name string) bool {
+	return len(name) > 4 && name[len(name)-4:] == "_sum"
+}
+
+func summaryMetricName(name string) string {
+	switch {
+	case isCount(name):
+		return name[:len(name)-6]
+	case isSum(name):
+		return name[:len(name)-4]
+	default:
+		return name
+	}
 }

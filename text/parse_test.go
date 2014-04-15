@@ -14,6 +14,7 @@
 package text
 
 import (
+	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -35,13 +36,51 @@ func testParse(t test.Tester) {
 `,
 			out: []*dto.MetricFamily{},
 		},
-		// 1: TBA
+		// 1: Minimal case.
 		{
 			in: `
-# HELP name doc string
+minimal_metric 1.234
+another_metric -3e3 103948
+`,
+			out: []*dto.MetricFamily{
+				&dto.MetricFamily{
+					Name: proto.String("minimal_metric"),
+					Type: dto.MetricType_CUSTOM.Enum(),
+					Metric: []*dto.Metric{
+						&dto.Metric{
+							Custom: &dto.Custom{
+								Value: proto.Float64(1.234),
+							},
+						},
+					},
+				},
+				&dto.MetricFamily{
+					Name: proto.String("another_metric"),
+					Type: dto.MetricType_CUSTOM.Enum(),
+					Metric: []*dto.Metric{
+						&dto.Metric{
+							Custom: &dto.Custom{
+								Value: proto.Float64(-3e3),
+							},
+							TimestampMs: proto.Int64(103948),
+						},
+					},
+				},
+			},
+		},
+		// 2: Counters & gauges, docstrings, various whitespace, escape sequences.
+		{
+			in: `
+# A normal comment.
 # TYPE name counter
 name{labelname="val1",basename="basevalue"} NaN
-name{labelname="val2",basename="basevalue"} 0.23 1234567890
+name {labelname="val2",basename="base\"v\\al\nue"} 0.23 1234567890
+# HELP name doc string
+
+ # HELP  name2  	doc string 2
+  #    TYPE    name2 gauge
+name2{labelname="val2"	,basename   =   "basevalue2"		} +Inf 54321
+name2{ labelname = "val1" }-Inf
 `,
 			out: []*dto.MetricFamily{
 				&dto.MetricFamily{
@@ -72,7 +111,7 @@ name{labelname="val2",basename="basevalue"} 0.23 1234567890
 								},
 								&dto.LabelPair{
 									Name:  proto.String("basename"),
-									Value: proto.String("basevalue"),
+									Value: proto.String("base\"v\\al\nue"),
 								},
 							},
 							Counter: &dto.Counter{
@@ -82,12 +121,120 @@ name{labelname="val2",basename="basevalue"} 0.23 1234567890
 						},
 					},
 				},
+				&dto.MetricFamily{
+					Name: proto.String("name2"),
+					Help: proto.String("doc string 2"),
+					Type: dto.MetricType_GAUGE.Enum(),
+					Metric: []*dto.Metric{
+						&dto.Metric{
+							Label: []*dto.LabelPair{
+								&dto.LabelPair{
+									Name:  proto.String("labelname"),
+									Value: proto.String("val2"),
+								},
+								&dto.LabelPair{
+									Name:  proto.String("basename"),
+									Value: proto.String("basevalue2"),
+								},
+							},
+							Gauge: &dto.Gauge{
+								Value: proto.Float64(math.Inf(+1)),
+							},
+							TimestampMs: proto.Int64(54321),
+						},
+						&dto.Metric{
+							Label: []*dto.LabelPair{
+								&dto.LabelPair{
+									Name:  proto.String("labelname"),
+									Value: proto.String("val1"),
+								},
+							},
+							Gauge: &dto.Gauge{
+								Value: proto.Float64(math.Inf(-1)),
+							},
+						},
+					},
+				},
+			},
+		},
+		// 3: The evil summary, mixed with other types.
+		{
+			in: `
+# TYPE my_summary summary
+my_summary{n1="val1",quantile="0.5"} 110
+decoy -1 -2
+my_summary{n1="val1",quantile="0.9"} 140 1
+my_summary_count{n1="val1"} 42
+# Latest timestamp wins in case of a summary.
+my_summary_sum{n1="val1"} 4711 2
+fake_sum{n1="val1"} 2001
+`,
+			out: []*dto.MetricFamily{
+				&dto.MetricFamily{
+					Name: proto.String("fake_sum"),
+					Type: dto.MetricType_CUSTOM.Enum(),
+					Metric: []*dto.Metric{
+						&dto.Metric{
+							Label: []*dto.LabelPair{
+								&dto.LabelPair{
+									Name:  proto.String("n1"),
+									Value: proto.String("val1"),
+								},
+							},
+							Custom: &dto.Custom{
+								Value: proto.Float64(2001),
+							},
+						},
+					},
+				},
+				&dto.MetricFamily{
+					Name: proto.String("decoy"),
+					Type: dto.MetricType_CUSTOM.Enum(),
+					Metric: []*dto.Metric{
+						&dto.Metric{
+							Custom: &dto.Custom{
+								Value: proto.Float64(-1),
+							},
+							TimestampMs: proto.Int64(-2),
+						},
+					},
+				},
+				&dto.MetricFamily{
+					Name: proto.String("my_summary"),
+					Type: dto.MetricType_SUMMARY.Enum(),
+					Metric: []*dto.Metric{
+						&dto.Metric{
+							Label: []*dto.LabelPair{
+								&dto.LabelPair{
+									Name:  proto.String("n1"),
+									Value: proto.String("val1"),
+								},
+							},
+							Summary: &dto.Summary{
+								SampleCount: proto.Uint64(42),
+								SampleSum:   proto.Float64(4711),
+								Quantile: []*dto.Quantile{
+									&dto.Quantile{
+										Quantile: proto.Float64(0.5),
+										Value:    proto.Float64(110),
+									},
+									&dto.Quantile{
+										Quantile: proto.Float64(0.9),
+										Value:    proto.Float64(140),
+									},
+								},
+							},
+							TimestampMs: proto.Int64(2),
+						},
+					},
+				},
 			},
 		},
 	}
 
 	for i, scenario := range scenarios {
 		out, err := TextToMetricFamilies(strings.NewReader(scenario.in))
+		fmt.Println(out)
 		if err != nil {
 			t.Errorf("%d. error: %s", i, err)
 			continue
@@ -132,11 +279,10 @@ func testParseError(t test.Tester) {
 		in  string
 		err string
 	}{
-		// 0: TBA
+		// 0: No new-line at end of input.
 		{
-			in: `
-`,
-			err: "TBA",
+			in:  `bla`,
+			err: "EOF",
 		},
 	}
 
