@@ -18,9 +18,13 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"math"
+	"strconv"
 	"strings"
 	"code.google.com/p/goprotobuf/proto"
 
+	"github.com/prometheus/client_golang/model"
+	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 )
 
@@ -73,6 +77,11 @@ func TextToMetricFamilies(in io.Reader) (map[string]*dto.MetricFamily, error) {
 		readingMetricName, readingLabels, readingValue,
 		readingHelp, readingType stateFn
 	)
+
+	// Weird stuff only needed for metric type Summary.
+	summaries := map[uint64]*dto.Metric{} // Key is created with labelsToSignature.
+	currentLabels := map[string]string{}  // All labels except 'quantile'.
+	currentQuantile := math.NaN()
 
 	/////////////////////////////////////////////////////////////
 	// Helper functions that access and modify state variables //
@@ -273,7 +282,12 @@ func TextToMetricFamilies(in io.Reader) (map[string]*dto.MetricFamily, error) {
 			return nil
 		}
 		currentLabelPair = &dto.LabelPair{Name: proto.String(currentToken.String())}
-		currentMetric.Label = append(currentMetric.Label, currentLabelPair)
+		// Once more, special summary treatment... Don't add 'quantile'
+		// labels to 'real' labels.
+		if currentMF.GetType() != dto.MetricType_SUMMARY ||
+			currentLabelPair.GetName() != "quantile" {
+			currentMetric.Label = append(currentMetric.Label, currentLabelPair)
+		}
 		if isBlankOrTab(currentByte) {
 			if skipBlankTab(); err != nil {
 				return nil // Unexpected end of input.
@@ -298,6 +312,15 @@ func TextToMetricFamilies(in io.Reader) (map[string]*dto.MetricFamily, error) {
 			return nil
 		}
 		currentLabelPair.Value = proto.String(currentToken.String())
+		// Special treatment of quantile labels for summary.
+		if currentMF.GetType() == dto.MetricType_SUMMARY &&
+			currentLabelPair.GetName() == "quantile" {
+			if currentQuantile, err = strconv.ParseFloat(currentLabelPair.GetValue(), 64); err != nil {
+				// Create a more helpful error message.
+				parseError(fmt.Sprintf("expected float as value for quantile label, got %q", currentLabelPair.GetValue()))
+				return nil
+			}
+		}
 		if skipBlankTab(); err != nil {
 			return nil // Unexpected end of input.
 		}
@@ -321,8 +344,15 @@ func TextToMetricFamilies(in io.Reader) (map[string]*dto.MetricFamily, error) {
 			return nil // Unexpected end of input.
 		}
 		setOrCreateCurrentMF(currentToken.String())
+		// Now is the time to fix the type if it hasn't happened yet.
+		if currentMF.Type == nil {
+			currentMF.Type = dto.MetricType_CUSTOM.Enum()
+		}
 		currentMetric = &dto.Metric{}
-		currentMF.Metric = append(currentMF.Metric, currentMetric)
+		// Do not append the newly created currentMetric to
+		// currentMF.Metric right now. First wait if this is a summary,
+		// and the metric exists already, which we can only know after
+		// having read all the labels.
 		if isBlankOrTab(currentByte) {
 			if skipBlankTab(); err != nil {
 				return nil // Unexpected end of input.
@@ -332,6 +362,16 @@ func TextToMetricFamilies(in io.Reader) (map[string]*dto.MetricFamily, error) {
 	}
 
 	readingLabels = func() stateFn {
+		// Alas, summaries are really special... We have to reset the
+		// currentLabels map and the currentQuantile before starting to
+		// read labels.
+		if currentMF.GetType() == dto.MetricType_SUMMARY {
+			for k := range currentLabels {
+				delete(currentLabels, k)
+			}
+			currentLabels[string(model.MetricNameLabel)] = currentMF.GetName()
+			currentQuantile = math.NaN()
+		}
 		if currentByte != '{' {
 			return readingValue
 		}
@@ -339,7 +379,17 @@ func TextToMetricFamilies(in io.Reader) (map[string]*dto.MetricFamily, error) {
 	}
 
 	readingValue = func() stateFn {
-		// TODO
+		// When we are here, we have read all the labels, so for the
+		// infamous special case of a summary, we can finally find out
+		// if the metric already exists. Otherwise, we can now add the
+		// currentMetric to currentMF.Metric.
+		if currentMF.GetType() == dto.MetricType_SUMMARY {
+			signature := prometheus.labelsToSignature(currentLabels)
+		} else {
+			currentMF.Metric = append(currentMF.Metric, currentMetric)
+		}
+
+		// TODO (not only value reading, also deal with Summary complexity)
 		return nil
 	}
 
@@ -377,7 +427,7 @@ func TextToMetricFamilies(in io.Reader) (map[string]*dto.MetricFamily, error) {
 	}
 
 	//////////////////////////////////////////////////////////////////////////////////
-	// Closure definitions done. Finally the normal code of the top-level function. //
+	// Closure definitions done. Finally the 'real' code of the top-level function. //
 	//////////////////////////////////////////////////////////////////////////////////
 
 	// Start the parsing loop.
