@@ -23,6 +23,8 @@ import (
 	dto "github.com/prometheus/client_model/go"
 )
 
+var parser Parser
+
 func testParse(t test.Tester) {
 	var scenarios = []struct {
 		in  string
@@ -337,7 +339,7 @@ my_summary{n1="val3", quantile="0.2"} 4711
 	}
 
 	for i, scenario := range scenarios {
-		out, err := TextToMetricFamilies(strings.NewReader(scenario.in))
+		out, err := parser.TextToMetricFamilies(strings.NewReader(scenario.in))
 		if err != nil {
 			t.Errorf("%d. error: %s", i, err)
 			continue
@@ -441,7 +443,8 @@ metric{quantile="bla"} 3.14
 		},
 		// 10:
 		{
-			in:  `metric{label="bla"} 3.14 2 3`,
+			in: `metric{label="bla"} 3.14 2 3
+`,
 			err: "text format parsing error in line 1: spurious string after timestamp",
 		},
 		// 11:
@@ -488,10 +491,20 @@ metric 4.12
 `,
 			err: "text format parsing error in line 2: invalid metric name in comment",
 		},
+		// 16:
+		{
+			in:  `@invalidmetric{label="bla"} 3.14 2`,
+			err: "text format parsing error in line 1: invalid metric name",
+		},
+		// 17:
+		{
+			in:  `{label="bla"} 3.14 2`,
+			err: "text format parsing error in line 1: invalid metric name",
+		},
 	}
 
 	for i, scenario := range scenarios {
-		_, err := TextToMetricFamilies(strings.NewReader(scenario.in))
+		_, err := parser.TextToMetricFamilies(strings.NewReader(scenario.in))
 		if err == nil {
 			t.Errorf("%d. expected error, got nil", i)
 			continue
