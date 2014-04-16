@@ -343,13 +343,18 @@ func TextToMetricFamilies(in io.Reader) (map[string]*dto.MetricFamily, error) {
 			return nil
 		}
 		currentLabelPair.Value = proto.String(currentToken.String())
-		// Special treatment of quantile labels for summary.
-		if currentMF.GetType() == dto.MetricType_SUMMARY &&
-			currentLabelPair.GetName() == "quantile" {
-			if currentQuantile, err = strconv.ParseFloat(currentLabelPair.GetValue(), 64); err != nil {
-				// Create a more helpful error message.
-				parseError(fmt.Sprintf("expected float as value for quantile label, got %q", currentLabelPair.GetValue()))
-				return nil
+		// Special treatment of summaries:
+		// - Quantile labels are special, will result in dto.Quantile later.
+		// - Othel labels have to be added to currentLabels for signature calculation.
+		if currentMF.GetType() == dto.MetricType_SUMMARY {
+			if currentLabelPair.GetName() == "quantile" {
+				if currentQuantile, err = strconv.ParseFloat(currentLabelPair.GetValue(), 64); err != nil {
+					// Create a more helpful error message.
+					parseError(fmt.Sprintf("expected float as value for quantile label, got %q", currentLabelPair.GetValue()))
+					return nil
+				}
+			} else {
+				currentLabels[currentLabelPair.GetName()] = currentLabelPair.GetValue()
 			}
 		}
 		if skipBlankTab(); err != nil {

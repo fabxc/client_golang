@@ -14,7 +14,6 @@
 package text
 
 import (
-	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -41,6 +40,9 @@ func testParse(t test.Tester) {
 			in: `
 minimal_metric 1.234
 another_metric -3e3 103948
+# Even that:
+no_labels{} 3
+# HELP line for non-existing metric will be ignored.
 `,
 			out: []*dto.MetricFamily{
 				&dto.MetricFamily{
@@ -66,12 +68,24 @@ another_metric -3e3 103948
 						},
 					},
 				},
+				&dto.MetricFamily{
+					Name: proto.String("no_labels"),
+					Type: dto.MetricType_CUSTOM.Enum(),
+					Metric: []*dto.Metric{
+						&dto.Metric{
+							Custom: &dto.Custom{
+								Value: proto.Float64(3),
+							},
+						},
+					},
+				},
 			},
 		},
 		// 2: Counters & gauges, docstrings, various whitespace, escape sequences.
 		{
 			in: `
 # A normal comment.
+#
 # TYPE name counter
 name{labelname="val1",basename="basevalue"} NaN
 name {labelname="val2",basename="base\"v\\al\nue"} 0.23 1234567890
@@ -157,7 +171,7 @@ name2{ labelname = "val1" }-Inf
 				},
 			},
 		},
-		// 3: The evil summary, mixed with other types.
+		// 3: The evil summary, mixed with other types and funny comments.
 		{
 			in: `
 # TYPE my_summary summary
@@ -168,6 +182,19 @@ my_summary_count{n1="val1"} 42
 # Latest timestamp wins in case of a summary.
 my_summary_sum{n1="val1"} 4711 2
 fake_sum{n1="val1"} 2001
+# TYPE another_summary summary
+another_summary_count{n2="val2",n1="val1"} 20
+my_summary_count{n2="val2",n1="val1"} 5 5
+another_summary{n1="val1",n2="val2",quantile=".3"} -1.2
+my_summary_sum{n1="val2"} 08 15
+my_summary{n1="val3", quantile="0.2"} 4711
+  my_summary{n1="val1",n2="val2",quantile="-12.34"} NaN
+# some
+# funny comments
+# HELP 
+# HELP
+# HELP my_summary
+# HELP my_summary 
 `,
 			out: []*dto.MetricFamily{
 				&dto.MetricFamily{
@@ -226,6 +253,83 @@ fake_sum{n1="val1"} 2001
 							},
 							TimestampMs: proto.Int64(2),
 						},
+						&dto.Metric{
+							Label: []*dto.LabelPair{
+								&dto.LabelPair{
+									Name:  proto.String("n2"),
+									Value: proto.String("val2"),
+								},
+								&dto.LabelPair{
+									Name:  proto.String("n1"),
+									Value: proto.String("val1"),
+								},
+							},
+							Summary: &dto.Summary{
+								SampleCount: proto.Uint64(5),
+								Quantile: []*dto.Quantile{
+									&dto.Quantile{
+										Quantile: proto.Float64(-12.34),
+										Value:    proto.Float64(math.NaN()),
+									},
+								},
+							},
+							TimestampMs: proto.Int64(5),
+						},
+						&dto.Metric{
+							Label: []*dto.LabelPair{
+								&dto.LabelPair{
+									Name:  proto.String("n1"),
+									Value: proto.String("val2"),
+								},
+							},
+							Summary: &dto.Summary{
+								SampleSum: proto.Float64(8),
+							},
+							TimestampMs: proto.Int64(15),
+						},
+						&dto.Metric{
+							Label: []*dto.LabelPair{
+								&dto.LabelPair{
+									Name:  proto.String("n1"),
+									Value: proto.String("val3"),
+								},
+							},
+							Summary: &dto.Summary{
+								Quantile: []*dto.Quantile{
+									&dto.Quantile{
+										Quantile: proto.Float64(0.2),
+										Value:    proto.Float64(4711),
+									},
+								},
+							},
+						},
+					},
+				},
+				&dto.MetricFamily{
+					Name: proto.String("another_summary"),
+					Type: dto.MetricType_SUMMARY.Enum(),
+					Metric: []*dto.Metric{
+						&dto.Metric{
+							Label: []*dto.LabelPair{
+								&dto.LabelPair{
+									Name:  proto.String("n2"),
+									Value: proto.String("val2"),
+								},
+								&dto.LabelPair{
+									Name:  proto.String("n1"),
+									Value: proto.String("val1"),
+								},
+							},
+							Summary: &dto.Summary{
+								SampleCount: proto.Uint64(20),
+								Quantile: []*dto.Quantile{
+									&dto.Quantile{
+										Quantile: proto.Float64(0.3),
+										Value:    proto.Float64(-1.2),
+									},
+								},
+							},
+						},
 					},
 				},
 			},
@@ -234,7 +338,6 @@ fake_sum{n1="val1"} 2001
 
 	for i, scenario := range scenarios {
 		out, err := TextToMetricFamilies(strings.NewReader(scenario.in))
-		fmt.Println(out)
 		if err != nil {
 			t.Errorf("%d. error: %s", i, err)
 			continue
@@ -281,8 +384,109 @@ func testParseError(t test.Tester) {
 	}{
 		// 0: No new-line at end of input.
 		{
-			in:  `bla`,
+			in:  `bla 3.14`,
 			err: "EOF",
+		},
+		// 1: Invalid escape sequence in label value.
+		{
+			in:  `metric{label="\t"} 3.14`,
+			err: "text format parsing error in line 1: invalid escape sequence",
+		},
+		// 2: Newline in label value.
+		{
+			in: `
+metric{label="new
+line"} 3.14
+`,
+			err: `text format parsing error in line 2: label value "new" contains unescaped new-line`,
+		},
+		// 3:
+		{
+			in:  `metric{@="bla"} 3.14`,
+			err: "text format parsing error in line 1: invalid label name for metric",
+		},
+		// 4:
+		{
+			in:  `metric{__name__="bla"} 3.14`,
+			err: `text format parsing error in line 1: label name "__name__" is reserved`,
+		},
+		// 5:
+		{
+			in:  `metric{label+="bla"} 3.14`,
+			err: "text format parsing error in line 1: expected '=' after label name",
+		},
+		// 6:
+		{
+			in:  `metric{label=bla} 3.14`,
+			err: "text format parsing error in line 1: expected '\"' at start of label value",
+		},
+		// 7:
+		{
+			in: `
+# TYPE metric summary
+metric{quantile="bla"} 3.14
+`,
+			err: "text format parsing error in line 3: expected float as value for quantile label",
+		},
+		// 8:
+		{
+			in:  `metric{label="bla"+} 3.14`,
+			err: "text format parsing error in line 1: unexpected end of label value",
+		},
+		// 9:
+		{
+			in: `metric{label="bla"} 3.14 2.72
+`,
+			err: "text format parsing error in line 1: expected integer as timestamp",
+		},
+		// 10:
+		{
+			in:  `metric{label="bla"} 3.14 2 3`,
+			err: "text format parsing error in line 1: spurious string after timestamp",
+		},
+		// 11:
+		{
+			in: `metric{label="bla"} blubb
+`,
+			err: "text format parsing error in line 1: expected float as value",
+		},
+		// 12:
+		{
+			in: `
+# HELP metric one
+# HELP metric two
+`,
+			err: "text format parsing error in line 3: second HELP line for metric name",
+		},
+		// 13:
+		{
+			in: `
+# TYPE metric counter
+# TYPE metric custom
+`,
+			err: `text format parsing error in line 3: second TYPE line for metric name "metric", or TYPE reported after samples`,
+		},
+		// 14:
+		{
+			in: `
+metric 4.12
+# TYPE metric counter
+`,
+			err: `text format parsing error in line 3: second TYPE line for metric name "metric", or TYPE reported after samples`,
+		},
+		// 14:
+		{
+			in: `
+# TYPE metric bla
+`,
+			err: "text format parsing error in line 2: unknown metric type",
+		},
+		// 15:
+		{
+			in: `
+# TYPE met-ric
+`,
+			err: "text format parsing error in line 2: invalid metric name in comment",
 		},
 	}
 
