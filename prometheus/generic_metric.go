@@ -29,28 +29,32 @@ var (
 // hand a value over to Prometheus (usually in a CollectMetrics method).  The
 // descriptor must have been registered with Prometheus before. Its Type field
 // must not be MetricType_SUMMARY. It must not have any variable labels.
-func NewStaticMetric(desc *Desc, v float64) Metric {
+func NewStaticMetric(desc *Desc, v float64) (Metric, error) {
 	if desc.canonName == "" {
-		panic(errDescriptorNotRegistered)
+		return nil, errDescriptorNotRegistered
 	}
 	if desc.Type == dto.MetricType_SUMMARY {
-		panic(errNoSummaryInStaticMetric)
+		return nil, errNoSummaryInStaticMetric
 	}
 	if len(desc.VariableLabels) != 0 {
-		panic(errInconsistentCardinality)
+		return nil, errInconsistentCardinality
 	}
-	return &staticMetric{val: v, desc: desc}
+	return &staticMetric{val: v, desc: desc}, nil
 }
 
-func NewStaticMetrics(descs []*Desc, vals []float64) []Metric {
+func NewStaticMetrics(descs []*Desc, vals []float64) ([]Metric, error) {
 	if len(descs) != len(vals) {
-		panic(errInconsistentLengthDescriptorsValues)
+		return nil, errInconsistentLengthDescriptorsValues
 	}
 	metrics := make([]Metric, 0, len(descs))
 	for i, desc := range descs {
-		metrics = append(metrics, NewStaticMetric(desc, vals[i]))
+		sm, err := NewStaticMetric(desc, vals[i])
+		if err != nil {
+			return nil, err
+		}
+		metrics = append(metrics, sm)
 	}
-	return metrics
+	return metrics, nil
 }
 
 type staticMetric struct {
@@ -75,12 +79,18 @@ type ValueMetric interface {
 	MetricsCollector
 
 	// Set assigns the value of this metric to the proxied value.
-	Set(float64, ...string)
+	Set(float64, ...string) error
+	Inc(...string) error
+	Dec(...string) error
+	Add(float64, ...string) error
+	Sub(float64, ...string) error
 	// Del deletes a given label set from this metric, indicating
 	// whether the label set was deleted.
 	Del(...string) bool
 }
 
+// NewValueMetric returns a newly allocated ValueMetric. It panics if the type
+// in desc is a summary.
 func NewValueMetric(desc *Desc) ValueMetric {
 	if desc.Type == dto.MetricType_SUMMARY {
 		panic(errNoSummaryInValueMetric)
@@ -110,20 +120,41 @@ func (v *valueMetric) Desc() *Desc {
 	return v.desc
 }
 
-func (v *valueMetric) Set(val float64, dims ...string) {
+func (v *valueMetric) Set(val float64, dims ...string) error {
 	if len(dims) != 0 {
-		panic(errInconsistentCardinality)
+		return errInconsistentCardinality
 	}
 	v.mtx.Lock()
 	defer v.mtx.Unlock()
 
 	v.val = val
+	return nil
+}
+
+func (c *valueMetric) Inc(dims ...string) error {
+	return c.Add(1, dims...)
+}
+
+func (c *valueMetric) Dec(dims ...string) error {
+	return c.Add(-1, dims...)
+}
+
+func (c *valueMetric) Add(v float64, dims ...string) error {
+	if len(dims) != 0 {
+		return errInconsistentCardinality
+	}
+	c.mtx.Lock()
+	defer c.mtx.Unlock()
+
+	c.val += v
+	return nil
+}
+
+func (c *valueMetric) Sub(v float64, dims ...string) error {
+	return c.Add(v*-1, dims...)
 }
 
 func (v *valueMetric) Del(dims ...string) bool {
-	if len(dims) != 0 {
-		panic(errInconsistentCardinality)
-	}
 	return false
 }
 
@@ -211,9 +242,9 @@ func (v *valueMetricVec) Write(out *dto.MetricFamily) {
 	out.Metric = gs
 }
 
-func (v *valueMetricVec) Set(val float64, ls ...string) {
+func (v *valueMetricVec) Set(val float64, ls ...string) error {
 	if len(ls) != len(v.desc.VariableLabels) {
-		panic(errInconsistentCardinality)
+		return errInconsistentCardinality
 	}
 
 	h := hashLabelValues(ls...)
@@ -222,7 +253,7 @@ func (v *valueMetricVec) Set(val float64, ls ...string) {
 	if vec, ok := v.children[h]; ok {
 		v.mtx.RUnlock()
 		vec.Set(val)
-		return
+		return nil
 	}
 	v.mtx.RUnlock()
 
@@ -230,18 +261,60 @@ func (v *valueMetricVec) Set(val float64, ls ...string) {
 	defer v.mtx.Unlock()
 	if vec, ok := v.children[h]; ok {
 		vec.Set(val)
-		return
+		return nil
 	}
 	v.children[h] = &valueMetricVecElem{
 		val:  val,
 		dims: ls,
 		desc: v.desc,
 	}
+	return nil
+}
+
+func (c *valueMetricVec) Inc(dims ...string) error {
+	return c.Add(1, dims...)
+}
+
+func (c *valueMetricVec) Dec(dims ...string) error {
+	return c.Add(-1, dims...)
+}
+
+func (c *valueMetricVec) Add(v float64, dims ...string) error {
+	if len(dims) != len(c.desc.VariableLabels) {
+		return errInconsistentCardinality
+	}
+
+	h := hashLabelValues(dims...)
+
+	c.mtx.RLock()
+	if vec, ok := c.children[h]; ok {
+		c.mtx.RUnlock()
+		vec.Add(v)
+		return nil
+	}
+	c.mtx.RUnlock()
+
+	c.mtx.Lock()
+	defer c.mtx.Unlock()
+	if vec, ok := c.children[h]; ok {
+		vec.Add(v)
+		return nil
+	}
+	c.children[h] = &valueMetricVecElem{
+		val:  v,
+		dims: dims,
+		desc: c.desc,
+	}
+	return nil
+}
+
+func (c *valueMetricVec) Sub(v float64, dims ...string) error {
+	return c.Add(v*-1, dims...)
 }
 
 func (v *valueMetricVec) Del(ls ...string) bool {
 	if len(ls) != len(v.desc.VariableLabels) {
-		panic(errInconsistentCardinality)
+		return false
 	}
 
 	h := hashLabelValues(ls...)

@@ -39,7 +39,7 @@ func (b respBody) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func TestInstrumentHandler(t *testing.T) {
-	defer func(n nower, c CounterVec, d, reqS, resS SummaryVec) {
+	defer func(n nower, c Counter, d, reqS, resS Summary) {
 		now = n.(nower)
 		reqCnt = c
 		reqDur = d
@@ -50,10 +50,10 @@ func TestInstrumentHandler(t *testing.T) {
 	instant := time.Now()
 	end := instant.Add(30 * time.Second)
 	now = nowSeries(instant, end)
-	reqCnt = NewCounterVec(reqCnt.(*counterVec).desc)
-	reqDur = NewSummaryVec(reqDur.(*summaryVec).desc)
-	reqSz = NewSummaryVec(reqSz.(*summaryVec).desc)
-	resSz = NewSummaryVec(resSz.(*summaryVec).desc)
+	reqCnt = NewCounter(reqCnt.Desc())
+	reqDur = NewSummary(reqDur.Desc(), reqDur.(*summaryVec).opts)
+	reqSz = NewSummary(reqSz.Desc(), reqSz.(*summaryVec).opts)
+	resSz = NewSummary(resSz.Desc(), resSz.(*summaryVec).opts)
 
 	respBody := respBody("Howdy there!")
 
@@ -110,7 +110,7 @@ func TestInstrumentHandler(t *testing.T) {
 	// }
 
 	out.Reset()
-		reqCnt.Write(out)
+	reqCnt.Write(out)
 	if out.GetType() != dto.MetricType_COUNTER {
 		t.Fatalf("expected type %d, got %s", dto.MetricType_COUNTER, out.GetType())
 	}

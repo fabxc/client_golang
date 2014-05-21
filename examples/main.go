@@ -22,7 +22,7 @@ func main() {
 	prometheus.MustRegister(indexed)
 
 	indexed.Set(42)
-	indexed.Dec()
+	indexed.Inc()
 	indexed.Add(100)
 
 	// For reference, this is how it looks like with the original proposal
@@ -148,10 +148,11 @@ func (m *MemStatsCollector) DescribeMetrics() []*prometheus.Desc {
 func (m *MemStatsCollector) CollectMetrics() []prometheus.Metric {
 	var ms runtime.MemStats
 	runtime.ReadMemStats(&ms)
-	return prometheus.NewStaticMetrics(
+	metrics, _ := prometheus.NewStaticMetrics(
 		m.Descs,
 		[]float64{float64(ms.Alloc), float64(ms.TotalAlloc), float64(ms.NumGC)},
 	)
+	return metrics
 	// If you don't like the ordering aspect of the above, you could do the following,
 	// where order doesn't matter:
 	// return []Metric{

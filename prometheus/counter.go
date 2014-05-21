@@ -6,17 +6,24 @@
 
 package prometheus
 
-import dto "github.com/prometheus/client_model/go"
+import (
+	"errors"
+
+	dto "github.com/prometheus/client_model/go"
+)
+
+var (
+	errCannotDecreaseCounter = errors.New("counter cannot decrease in value")
+)
 
 type Counter interface {
 	Metric
 	MetricsCollector
 
-	Inc(...string)
-	Dec(...string)
-	Add(float64, ...string)
-	Sub(float64, ...string)
-	Set(float64, ...string)
+	Inc(...string) error
+	// Add only works if float64 >= 0.
+	Add(float64, ...string) error
+	Set(float64, ...string) error
 	// Del deletes a given label set from this Counter, indicating whether the
 	// label set was deleted.
 	Del(...string) bool
@@ -45,68 +52,20 @@ type counter struct {
 	valueMetric
 }
 
-func (c *counter) Inc(dims ...string) {
-	c.Add(1, dims...)
-}
-
-func (c *counter) Dec(dims ...string) {
-	c.Add(-1, dims...)
-}
-
-func (c *counter) Add(v float64, dims ...string) {
-	if len(dims) != 0 {
-		panic(errInconsistentCardinality)
+func (c *counter) Add(v float64, dims ...string) error {
+	if v < 0 {
+		return errCannotDecreaseCounter
 	}
-	c.mtx.Lock()
-	defer c.mtx.Unlock()
-
-	c.val += v
-}
-
-func (c *counter) Sub(v float64, dims ...string) {
-	c.Add(v*-1, dims...)
+	return c.valueMetric.Add(v, dims...)
 }
 
 type counterVec struct {
 	valueMetricVec
 }
 
-func (c *counterVec) Inc(dims ...string) {
-	c.Add(1, dims...)
-}
-
-func (c *counterVec) Dec(dims ...string) {
-	c.Add(-1, dims...)
-}
-
-func (c *counterVec) Add(v float64, dims ...string) {
-	if len(dims) != len(c.desc.VariableLabels) {
-		panic(errInconsistentCardinality)
+func (c *counterVec) Add(v float64, dims ...string) error {
+	if v < 0 {
+		return errCannotDecreaseCounter
 	}
-
-	h := hashLabelValues(dims...)
-
-	c.mtx.RLock()
-	if vec, ok := c.children[h]; ok {
-		c.mtx.RUnlock()
-		vec.Add(v)
-		return
-	}
-	c.mtx.RUnlock()
-
-	c.mtx.Lock()
-	defer c.mtx.Unlock()
-	if vec, ok := c.children[h]; ok {
-		vec.Add(v)
-		return
-	}
-	c.children[h] = &valueMetricVecElem{
-		val:  v,
-		dims: dims,
-		desc: c.desc,
-	}
-}
-
-func (c *counterVec) Sub(v float64, dims ...string) {
-	c.Add(v*-1, dims...)
+	return c.valueMetricVec.Add(v, dims...)
 }

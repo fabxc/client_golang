@@ -23,7 +23,7 @@ func (n nowFunc) Now() time.Time {
 	return n()
 }
 
-var now = nowFunc(func() time.Time {
+var now nower = nowFunc(func() time.Time {
 	return time.Now()
 })
 
@@ -37,7 +37,7 @@ func nowSeries(t ...time.Time) nower {
 	})
 }
 
-func InstrumentHandler(path string, hnd http.Handler) http.Handler {
+func InstrumentHandler(path string, hnd http.Handler) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		now := time.Now()
 

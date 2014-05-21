@@ -14,7 +14,11 @@ type Untyped interface {
 	MetricsCollector
 
 	// Set assigns the value of this Untyped metric to the proxied value.
-	Set(float64, ...string)
+	Set(float64, ...string) error
+	Inc(...string) error
+	Dec(...string) error
+	Add(float64, ...string) error
+	Sub(float64, ...string) error
 	// Del deletes a given label set from this Untyped metric, indicating
 	// whether the label set was deleted.
 	Del(...string) bool
