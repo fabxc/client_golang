@@ -39,10 +39,7 @@ func NewCounter(desc *Desc) Counter {
 		return result
 	}
 	result := &counterVec{
-		valueMetricVec: valueMetricVec{
-			desc:     desc,
-			children: map[uint64]*valueMetricVecElem{},
-		},
+		valueMetricVec: *newValueMetricVec(desc),
 	}
 	result.Self = result
 	return result

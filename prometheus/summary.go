@@ -28,7 +28,7 @@ type Summary interface {
 	Metric
 	MetricsCollector
 
-	Observe(float64, ...string)
+	Observe(float64, ...string) // TODO de-panic-fy, return Error instead, also Del
 	Del(...string) bool
 }
 
@@ -464,7 +464,7 @@ func (s *summaryVec) Observe(v float64, dims ...string) {
 		panic(errInconsistentCardinality)
 	}
 
-	h := hashLabelValues(dims...)
+	h := uint64(0) // TODO hashLabelValues(dims...)
 
 	s.mtx.RLock()
 	if vec, ok := s.children[h]; ok {
@@ -498,7 +498,7 @@ func (s *summaryVec) Del(ls ...string) bool {
 		panic(errInconsistentCardinality)
 	}
 
-	h := hashLabelValues(ls...)
+	h := uint64(0) // TODO hashLabelValues(ls...)
 
 	s.mtx.Lock()
 	defer s.mtx.Unlock()

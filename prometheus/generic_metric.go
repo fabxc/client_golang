@@ -7,8 +7,11 @@
 package prometheus
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"hash"
+	"hash/fnv"
 	"sort"
 	"sync"
 
@@ -100,12 +103,7 @@ func NewValueMetric(desc *Desc) ValueMetric {
 		result.Self = result
 		return result
 	}
-	result := &valueMetricVec{
-		desc:     desc,
-		children: map[uint64]*valueMetricVecElem{},
-	}
-	result.Self = result
-	return result
+	return newValueMetricVec(desc)
 }
 
 type valueMetric struct {
@@ -131,27 +129,27 @@ func (v *valueMetric) Set(val float64, dims ...string) error {
 	return nil
 }
 
-func (c *valueMetric) Inc(dims ...string) error {
-	return c.Add(1, dims...)
+func (v *valueMetric) Inc(dims ...string) error {
+	return v.Add(1, dims...)
 }
 
-func (c *valueMetric) Dec(dims ...string) error {
-	return c.Add(-1, dims...)
+func (v *valueMetric) Dec(dims ...string) error {
+	return v.Add(-1, dims...)
 }
 
-func (c *valueMetric) Add(v float64, dims ...string) error {
+func (v *valueMetric) Add(val float64, dims ...string) error {
 	if len(dims) != 0 {
 		return errInconsistentCardinality
 	}
-	c.mtx.Lock()
-	defer c.mtx.Unlock()
+	v.mtx.Lock()
+	defer v.mtx.Unlock()
 
-	c.val += v
+	v.val += val
 	return nil
 }
 
-func (c *valueMetric) Sub(v float64, dims ...string) error {
-	return c.Add(v*-1, dims...)
+func (v *valueMetric) Sub(val float64, dims ...string) error {
+	return v.Add(val*-1, dims...)
 }
 
 func (v *valueMetric) Del(dims ...string) bool {
@@ -214,6 +212,9 @@ type valueMetricVec struct {
 	mtx      sync.RWMutex
 	children map[uint64]*valueMetricVecElem
 	desc     *Desc
+
+	hash hash.Hash64
+	buf  bytes.Buffer
 }
 
 func (v *valueMetricVec) Desc() *Desc {
@@ -242,86 +243,72 @@ func (v *valueMetricVec) Write(out *dto.MetricFamily) {
 	out.Metric = gs
 }
 
-func (v *valueMetricVec) Set(val float64, ls ...string) error {
-	if len(ls) != len(v.desc.VariableLabels) {
+func (v *valueMetricVec) Set(val float64, dims ...string) error {
+	if len(dims) != len(v.desc.VariableLabels) {
 		return errInconsistentCardinality
 	}
 
-	h := hashLabelValues(ls...)
-
-	v.mtx.RLock()
-	if vec, ok := v.children[h]; ok {
-		v.mtx.RUnlock()
-		vec.Set(val)
-		return nil
-	}
-	v.mtx.RUnlock()
-
 	v.mtx.Lock()
 	defer v.mtx.Unlock()
+	h := v.hashLabelValues(dims...)
 	if vec, ok := v.children[h]; ok {
 		vec.Set(val)
 		return nil
 	}
 	v.children[h] = &valueMetricVecElem{
-		val:  val,
-		dims: ls,
+		val: val,
+		// Beware of the weirdness... This is required to
+		// not casue the compiler to allocate the dims arg
+		// on the heap even if we do not need to create
+		// a new child.
+		dims: append(make([]string, 0, len(dims)), dims...),
 		desc: v.desc,
 	}
 	return nil
 }
 
-func (c *valueMetricVec) Inc(dims ...string) error {
-	return c.Add(1, dims...)
+func (v *valueMetricVec) Inc(dims ...string) error {
+	return v.Add(1., dims...)
 }
 
-func (c *valueMetricVec) Dec(dims ...string) error {
-	return c.Add(-1, dims...)
+func (v *valueMetricVec) Dec(dims ...string) error {
+	return v.Add(-1., dims...)
 }
 
-func (c *valueMetricVec) Add(v float64, dims ...string) error {
-	if len(dims) != len(c.desc.VariableLabels) {
+func (v *valueMetricVec) Add(val float64, dims ...string) error {
+	if len(dims) != len(v.desc.VariableLabels) {
 		return errInconsistentCardinality
 	}
-
-	h := hashLabelValues(dims...)
-
-	c.mtx.RLock()
-	if vec, ok := c.children[h]; ok {
-		c.mtx.RUnlock()
-		vec.Add(v)
+	v.mtx.Lock()
+	defer v.mtx.Unlock()
+	h := v.hashLabelValues(dims...)
+	if vec, ok := v.children[h]; ok {
+		vec.Add(val)
 		return nil
 	}
-	c.mtx.RUnlock()
-
-	c.mtx.Lock()
-	defer c.mtx.Unlock()
-	if vec, ok := c.children[h]; ok {
-		vec.Add(v)
-		return nil
-	}
-	c.children[h] = &valueMetricVecElem{
-		val:  v,
-		dims: dims,
-		desc: c.desc,
+	v.children[h] = &valueMetricVecElem{
+		val: val,
+		// Beware of the weirdness... This is required to
+		// not casue the compiler to allocate the dims arg
+		// on the heap even if we do not need to create
+		// a new child.
+		dims: append(make([]string, 0, len(dims)), dims...),
+		desc: v.desc,
 	}
 	return nil
 }
 
-func (c *valueMetricVec) Sub(v float64, dims ...string) error {
-	return c.Add(v*-1, dims...)
+func (v *valueMetricVec) Sub(val float64, dims ...string) error {
+	return v.Add(val*-1, dims...)
 }
 
 func (v *valueMetricVec) Del(ls ...string) bool {
 	if len(ls) != len(v.desc.VariableLabels) {
 		return false
 	}
-
-	h := hashLabelValues(ls...)
-
 	v.mtx.Lock()
 	defer v.mtx.Unlock()
-
+	h := v.hashLabelValues(ls...)
 	if _, has := v.children[h]; !has {
 		return false
 	}
@@ -329,15 +316,21 @@ func (v *valueMetricVec) Del(ls ...string) bool {
 	return true
 }
 
-func newValueMetric(desc Desc) Metric {
-	if len(desc.VariableLabels) == 0 {
-		result := &valueMetric{desc: &desc}
-		result.Self = result
-		return result
+func (v *valueMetricVec) hashLabelValues(vals ...string) uint64 {
+	v.hash.Reset()
+	for _, val := range vals {
+		v.buf.Reset()
+		v.buf.WriteString(val)
+		v.hash.Write(v.buf.Bytes())
 	}
+	return v.hash.Sum64()
+}
+
+func newValueMetricVec(desc *Desc) *valueMetricVec {
 	result := &valueMetricVec{
-		desc:     &desc,
+		desc:     desc,
 		children: map[uint64]*valueMetricVecElem{},
+		hash:     fnv.New64a(),
 	}
 	result.Self = result
 	return result

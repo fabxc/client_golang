@@ -6,18 +6,6 @@
 
 package prometheus
 
-import (
-	"hash/fnv"
-)
-
-func hashLabelValues(vs ...string) uint64 {
-	h := fnv.New64a()
-	for _, v := range vs {
-		h.Write([]byte(v))
-	}
-	return h.Sum64()
-}
-
 type hashSorter []uint64
 
 func (s hashSorter) Len() int {

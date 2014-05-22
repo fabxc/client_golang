@@ -7,6 +7,7 @@
 package prometheus
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"hash/fnv"
@@ -156,16 +157,27 @@ func (d *Desc) build() error {
 	if len(labelNames) != len(labelNameSet) {
 		return errDuplLabelDesc
 	}
-	d.id = hashLabelValues(labelValues...)
+	h := fnv.New64a()
+	var b bytes.Buffer
+	for _, val := range labelValues {
+		b.Reset()
+		b.WriteString(val)
+		h.Write(b.Bytes())
+	}
+	d.id = h.Sum64()
 	// Sort labelNames so that order doesn't matter for the hash.
 	sort.Strings(labelNames)
 	// Now hash together (in this order) the type, the help string, and the
 	// sorted label names.
-	h := fnv.New64a()
+	h.Reset()
 	binary.Write(h, binary.BigEndian, d.Type)
-	h.Write([]byte(d.Help))
+	b.Reset()
+	b.WriteString(d.Help)
+	h.Write(b.Bytes())
 	for _, labelName := range labelNames {
-		h.Write([]byte(labelName))
+		b.Reset()
+		b.WriteString(labelName)
+		h.Write(b.Bytes())
 	}
 	d.dimHash = h.Sum64()
 
