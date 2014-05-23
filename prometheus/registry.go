@@ -14,7 +14,9 @@ import (
 	"hash/fnv"
 	"io"
 	"net/http"
+	"sort"
 	"sync"
+	"code.google.com/p/goprotobuf/proto"
 
 	dto "github.com/prometheus/client_model/go"
 
@@ -130,10 +132,22 @@ func (r *registry) Unregister(m MetricsCollector) (bool, error) {
 		return false, err
 	}
 
+	r.mtx.RLock()
 	if _, ok := r.metricsCollectorsByID[collectorID]; !ok {
+		r.mtx.RUnlock()
 		return false, nil
 	}
+	r.mtx.RUnlock()
+
+	r.mtx.Lock()
+	defer r.mtx.Unlock()
+
 	delete(r.metricsCollectorsByID, collectorID)
+	for _, desc := range descs {
+		delete(r.descIDs, desc.id)
+	}
+	// dimHashesByName is left untouched as those must be consistent
+	// throughout the lifetime of a program.
 	return true, nil
 }
 
@@ -266,18 +280,60 @@ func (r *registry) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 }
 
 func (r *registry) writePB(w io.Writer, writeEncoded encoder) (int, error) {
-	// TODO implement!
-	// Do the following:
-	// - Iterate through registered MetricCollectors.
-	// - Call their CollectMetrics() method (can be done concurrently).
-	//   (Might want to check consistency with DescribeMetrics().)
-	// - On the retrieved metrics, call Write() (can be done concurrently).
-	// - Merge the generated MetricFamily proto mesages by name:
-	//   - Consistency is guaranteed provided consistency with DescribeMetrics.
-	//   - So it's only appending the metrics arrays of MetricFamilies with matching name
-	//   - Want reproducible sorting, though. By collector hash?
 	// - Write resulting merged MetricFamilies with encoder (sorted by name).
-	return 0, nil
+
+	metricFamiliesByName := make(map[string]*dto.MetricFamily, len(r.dimHashesByName))
+	collectorIDs := make([]uint64, 0, len(r.metricsCollectorsByID))
+	collectors := make([]MetricsCollector, 0, len(r.metricsCollectorsByID))
+
+	r.mtx.RLock()
+	// For reproducible order, sort MetricsCollectors by their ID.
+	for collectorID := range r.metricsCollectorsByID {
+		collectorIDs = append(collectorIDs, collectorID)
+	}
+	sort.Sort(hashSorter(collectorIDs))
+	for _, collectorID := range collectorIDs {
+		collectors = append(collectors, r.metricsCollectorsByID[collectorID])
+	}
+	defer r.mtx.RUnlock()
+
+	for _, collector := range collectors {
+		// TODO: Evaluate collecting metrics concurrently.
+		for _, metric := range collector.CollectMetrics() {
+			desc := metric.Desc()
+			// TODO: Optional check if desc is an element of collector.DescribeMetrics().
+			metricFamily, ok := metricFamiliesByName[desc.canonName]
+			if !ok {
+				// TODO: Evaluate getting MetricFamily object from pool.
+				metricFamily = &dto.MetricFamily{
+					Name: proto.String(desc.canonName),
+					Help: proto.String(desc.Help),
+					Type: desc.Type.Enum(),
+				}
+				metricFamiliesByName[desc.canonName] = metricFamily
+			}
+			// TODO: Evaluate getting Metric object from pool.
+			dtoMetric := &dto.Metric{}
+			metric.Write(dtoMetric)
+			// TODO: Optional check if dtoMetric is consistent with desc.
+			metricFamily.Metric = append(metricFamily.Metric, dtoMetric)
+		}
+	}
+	names := make([]string, 0, len(metricFamiliesByName))
+	for name := range metricFamiliesByName {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	var written int
+	for _, name := range names {
+		w, err := writeEncoded(w, metricFamiliesByName[name])
+		written += w
+		if err != nil {
+			return written, err
+		}
+	}
+	return written, nil
 }
 
 func (r *registry) writeExternalPB(w io.Writer, writeEncoded encoder) (int, error) {

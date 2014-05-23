@@ -14,7 +14,7 @@ import (
 )
 
 func ExampleGauge() {
-	delOps := NewGauge(&Desc{
+	delOps, _ := NewGauge(&Desc{
 		Namespace: "our_company",
 		Subsystem: "blob_storage",
 		Name:      "deletes",
@@ -25,7 +25,7 @@ func ExampleGauge() {
 }
 
 func ExampleGaugeVec() {
-	delOps := NewGauge(&Desc{
+	delOps, _ := NewGaugeVec(&Desc{
 		Namespace: "our_company",
 		Subsystem: "blob_storage",
 		Name:      "deletes",
@@ -39,9 +39,9 @@ func ExampleGaugeVec() {
 	})
 
 	// Oops, we need to delete that embarrassing picture of ourselves.
-	delOps.Set(4, "profile-pictures", "immediate")
+	delOps.WithLabelValues("profile-pictures", "immediate").Set(4)
 	// Those bad cat memes finally get deleted.
-	delOps.Set(1, "cat-memes", "lazy")
+	delOps.WithLabels(map[string]string{"corpus": "cat-memes", "qos": "lazy"}).Set(1)
 }
 
 func listenGaugeStream(vals, final chan float64, done chan struct{}) {
@@ -83,10 +83,13 @@ func TestGaugeConcurrency(t *testing.T) {
 			close(done)
 		}()
 
-		gge := NewGauge(&Desc{
+		gge, err := NewGauge(&Desc{
 			Name: "test_gauge",
 			Help: "no help can be found here",
 		})
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		for i := 0; i < concLevel; i++ {
 			vals := make([]float64, 0, mutations)
@@ -108,8 +111,8 @@ func TestGaugeConcurrency(t *testing.T) {
 
 		last := <-final
 
-		if last != gge.(*valueMetric).val {
-			t.Fatalf("expected %f, got %f", last, gge.(*valueMetric).val)
+		if last != gge.(*Value).val {
+			t.Fatalf("expected %f, got %f", last, gge.(*Value).val)
 			return false
 		}
 
@@ -141,10 +144,13 @@ func TestGaugeVecConcurrency(t *testing.T) {
 			close(done)
 		}()
 
-		gge := NewGauge(&Desc{
+		gge, err := NewGauge(&Desc{
 			Name: "test_gauge",
 			Help: "no help can be found here",
 		})
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		for i := 0; i < concLevel; i++ {
 			vals := make([]float64, 0, mutations)
@@ -166,8 +172,8 @@ func TestGaugeVecConcurrency(t *testing.T) {
 
 		last := <-final
 
-		if last != gge.(*valueMetric).val {
-			t.Fatalf("expected %f, got %f", last, gge.(*valueMetric).val)
+		if last != gge.(*Value).val {
+			t.Fatalf("expected %f, got %f", last, gge.(*Value).val)
 			return false
 		}
 

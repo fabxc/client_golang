@@ -8,6 +8,7 @@ package prometheus
 
 import (
 	"errors"
+	"hash/fnv"
 
 	dto "github.com/prometheus/client_model/go"
 )
@@ -20,49 +21,68 @@ type Counter interface {
 	Metric
 	MetricsCollector
 
-	Inc(...string) error
-	// Add only works if float64 >= 0.
-	Add(float64, ...string) error
-	Set(float64, ...string) error
-	// Del deletes a given label set from this Counter, indicating whether the
-	// label set was deleted.
-	Del(...string) bool
+	Set(float64)
+	Inc()
+	// Add panics if float64 < 0.
+	Add(float64)
 }
 
 // NewCounter emits a new Counter from the provided descriptor.
 // The Type field is ignored and forcefully set to MetricType_COUNTER.
-func NewCounter(desc *Desc) Counter {
+func NewCounter(desc *Desc) (Counter, error) {
+	if len(desc.VariableLabels) > 0 {
+		return nil, errLabelsForSimpleMetric
+	}
 	desc.Type = dto.MetricType_COUNTER
-	if len(desc.VariableLabels) == 0 {
-		result := &counter{valueMetric: valueMetric{desc: desc}}
-		result.Self = result
-		return result
-	}
-	result := &counterVec{
-		valueMetricVec: *newValueMetricVec(desc),
-	}
-	result.Self = result
-	return result
+	result := &counter{Value: Value{desc: desc}}
+	result.MetricSlice = []Metric{result}
+	result.DescSlice = []*Desc{desc}
+	return result, nil
 }
 
 type counter struct {
-	valueMetric
+	Value
 }
 
-func (c *counter) Add(v float64, dims ...string) error {
+func (c *counter) Add(v float64) {
 	if v < 0 {
-		return errCannotDecreaseCounter
+		panic(errCannotDecreaseCounter)
 	}
-	return c.valueMetric.Add(v, dims...)
+	c.Value.Add(v)
 }
 
-type counterVec struct {
-	valueMetricVec
+type CounterVec struct {
+	MetricVec
 }
 
-func (c *counterVec) Add(v float64, dims ...string) error {
-	if v < 0 {
-		return errCannotDecreaseCounter
+func NewCounterVec(desc *Desc) (*CounterVec, error) {
+	if len(desc.VariableLabels) == 0 {
+		return nil, errNoLabelsForVecMetric
 	}
-	return c.valueMetricVec.Add(v, dims...)
+	desc.Type = dto.MetricType_COUNTER
+	return &CounterVec{
+		MetricVec: MetricVec{
+			children: map[uint64]Metric{},
+			desc:     desc,
+			hash:     fnv.New64a(),
+		},
+	}, nil
+}
+
+func (m *CounterVec) GetMetricWithLabelValues(dims ...string) (Counter, error) {
+	metric, err := m.MetricVec.GetMetricWithLabelValues(dims...)
+	return metric.(Counter), err
+}
+
+func (m *CounterVec) GetMetricWithLabels(labels map[string]string) (Counter, error) {
+	metric, err := m.MetricVec.GetMetricWithLabels(labels)
+	return metric.(Counter), err
+}
+
+func (m *CounterVec) WithLabelValues(dims ...string) Counter {
+	return m.MetricVec.WithLabelValues(dims...).(Counter)
+}
+
+func (m *CounterVec) WithLabels(labels map[string]string) Counter {
+	return m.MetricVec.WithLabels(labels).(Counter)
 }

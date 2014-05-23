@@ -15,7 +15,7 @@ func main() {
 	http.Handle("/metrics", prometheus.Handler)
 
 	// A simple counter.
-	indexed := prometheus.NewCounter(&prometheus.Desc{
+	indexed, _ := prometheus.NewCounter(&prometheus.Desc{
 		Name: "documents_indexed",
 		Help: "The number of documents indexed.",
 	})
@@ -42,18 +42,18 @@ func main() {
 	// indexed.Add(100)
 
 	// A counter with dimensions.
-	searched := prometheus.NewCounter(&prometheus.Desc{
+	searched, _ := prometheus.NewCounterVec(&prometheus.Desc{
 		Name:           "documents_searched",
 		Help:           "The number of documents indexed.",
 		VariableLabels: []string{"status_code", "version"},
 	})
 	prometheus.MustRegister(searched)
 
-	searched.Set(2001, "200", "prod")
-	searched.Set(4, "404", "test")
-	searched.Inc("200", "prod")
+	searched.WithLabelValues("200", "prod").Set(2001)
+	searched.WithLabels(map[string]string{"status_code": "404", "version": "test"}).Set(4)
 	// Proposal to do out-of-order labels with name->value pairs:
-	searched.Set(2001, "version", "prod", "status_code", "200")
+	// searched.WithLabels("status_code", "404", "version", "test").Set(4)
+	searched.WithLabelValues("200", "prod").Inc()
 
 	// Same with the OP:
 	// searched := prometheus.NewCounterVec(prometheus.CounterVecDesc{
@@ -72,7 +72,7 @@ func main() {
 	// searched.Inc("200", "prod")
 
 	// A summary with fancy options.
-	summary := prometheus.NewSummary(
+	summary, _ := prometheus.NewSummary(
 		&prometheus.Desc{
 			Name: "fancy_summary",
 			Help: "A summary to demonstrate the options.",
@@ -87,6 +87,7 @@ func main() {
 		},
 	)
 	prometheus.MustRegister(summary)
+	summary.Observe(123.345)
 
 	// Same with the OP (a summary with labels would be again different):
 	// summary := prometheus.NewSummary(prometheus.SummaryDesc{
@@ -190,17 +191,19 @@ func (c *ClusterManager) DescribeMetrics() []*prometheus.Desc {
 
 func (c *ClusterManager) CollectMetrics() []prometheus.Metric {
 	// Create metrics from scratch each time because hosts that have gone
-	// away since the last scrape must not stay around.
-	oomCountCounter := prometheus.NewCounter(c.OOMCountDesc)
-	ramUsageGauge := prometheus.NewGauge(c.RAMUsageDesc)
+	// away since the last scrape must not stay around.  If that's too much
+	// of a resource drain, keep the metrics around and reset them
+	// carefully.
+	oomCountCounter, _ := prometheus.NewCounterVec(c.OOMCountDesc)
+	ramUsageGauge, _ := prometheus.NewGaugeVec(c.RAMUsageDesc)
 	oomCountByHost, ramUsageByHost := c.ReallyExpensiveAssessmentOfTheSystemState()
 	for host, oomCount := range oomCountByHost {
-		oomCountCounter.Set(float64(oomCount), host)
+		oomCountCounter.WithLabelValues(host).Set(float64(oomCount))
 	}
 	for host, ramUsage := range ramUsageByHost {
-		ramUsageGauge.Set(ramUsage, host)
+		ramUsageGauge.WithLabelValues(host).Set(ramUsage)
 	}
-	return []prometheus.Metric{oomCountCounter, ramUsageGauge}
+	return append(oomCountCounter.CollectMetrics(), ramUsageGauge.CollectMetrics()...)
 }
 
 func NewClusterManager(zone string) *ClusterManager {

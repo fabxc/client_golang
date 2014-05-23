@@ -21,21 +21,24 @@ import (
 // Metric models any sort of telemetric data you wish to export to Prometheus.
 type Metric interface {
 	// Desc returns the descriptor for the Metric. This method idempotently
-	// returns the same descriptor throughout the lifetime of the Metric.
+	// returns the same immutable descriptor throughout the lifetime of the
+	// Metric.
 	Desc() *Desc
-	// Write encodes the Metric into Protocol Buffer data transmission objects.
+	// Write encodes the Metric into a "Metric" Protocol Buffer data
+	// transmission object.
 	//
-	// Implementers of custom Metric types must observe concurrency safety as
-	// reads of this metric may occur at any time, and any blocking occurs at
-	// the expense of total performance of rendering all registered metrics.
-	// Ideally Metric implementations should support concurrent readers.
+	// Implementers of custom Metric types must observe concurrency safety
+	// as reads of this metric may occur at any time, and any blocking
+	// occurs at the expense of total performance of rendering all
+	// registered metrics.  Ideally Metric implementations should support
+	// concurrent readers.
 	//
 	// The Prometheus client library attempts to minimize memory allocations
-	// and will provide a pre-existing reset dto.MetricFamily pointer.
-	// Prometheus recycles the returned value, so Metric implementations should
-	// not keep any reference to it.  Prometheus will never invoke Write with a
+	// and will provide a pre-existing reset dto.Metric pointer. Prometheus
+	// recycles the returned value, so Metric implementations should not
+	// keep any reference to it.  Prometheus will never invoke Write with a
 	// value.
-	Write(*dto.MetricFamily)
+	Write(*dto.Metric)
 }
 
 // Desc is a the descriptor for all Prometheus metrics. It is essentially the
@@ -53,7 +56,7 @@ type Metric interface {
 // name. (Take into account that you may end up with the same fully-qualified
 // even with different settings for Namespace, Subsystem, and Name.) Descriptors
 // that share a fully-qualified name must also have the same Type, the same
-// Help, and the same label names (aka label dimensions) for each PresetLabels
+// Help, and the same label names (aka label dimensions) in each, PresetLabels
 // and VariableLabels, but they must differ in the values of the PresetLabels.
 type Desc struct {
 	Namespace string
@@ -76,7 +79,7 @@ type Desc struct {
 	// canonName is materialized from Namespace, Subsystem, and Name.
 	canonName string
 	// id is a hash of the values of the PresetLabels and canonName. This
-	// must be unique among all registered descriptors and can therefory be
+	// must be unique among all registered descriptors and can therefore be
 	// used as an identifier of the descriptor.
 	id uint64
 	// dimHash is a hash of the label names (preset and variable), the Type
@@ -95,11 +98,15 @@ var (
 	errNoDesc = errors.New("metric collector has no metric descriptors")
 
 	errInconsistentCardinality = errors.New("inconsistent label cardinality")
+	errLabelsForSimpleMetric   = errors.New("tried to create a simple metric with variable labels")
+	errNoLabelsForVecMetric    = errors.New("tried to create a vector metric without variable labels")
 
 	errEmptyLabelDesc = errors.New("vector may not be described by empty label dimension")
 	errDuplLabelDesc  = errors.New("vector may not be described by duplicate label dimension")
 )
 
+// build is called upon registration. It materializes cannonName and calculates
+// the various hashes.
 func (d *Desc) build() error {
 	if d.Name == "" {
 		return errEmptyName
@@ -144,10 +151,6 @@ func (d *Desc) build() error {
 	// cannot be in a regular label name. That prevents matching the label
 	// dimension with a different mix between preset and variable labels.
 	for _, labelName := range d.VariableLabels {
-		// Prefix preset label names with something that cannot be in a
-		// regular label name. That prevents matching the label
-		// dimension with a different mix between preset and variable
-		// labels.
 		if labelName == "" {
 			return errEmptyLabelDesc
 		}
@@ -205,4 +208,18 @@ func (s lpSorter) Swap(i, j int) {
 
 func (s lpSorter) Less(i, j int) bool {
 	return s[i].GetName() < s[j].GetName()
+}
+
+type hashSorter []uint64
+
+func (s hashSorter) Len() int {
+	return len(s)
+}
+
+func (s hashSorter) Swap(i, j int) {
+	s[i], s[j] = s[j], s[i]
+}
+
+func (s hashSorter) Less(i, j int) bool {
+	return s[i] < s[j]
 }

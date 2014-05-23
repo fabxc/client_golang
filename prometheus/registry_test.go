@@ -34,13 +34,17 @@ func (r *fakeResponseWriter) WriteHeader(c int) {
 
 func testHandler(t testing.TB) {
 
-	metric := NewCounter(&Desc{
+	metricVec, err := NewCounterVec(&Desc{
 		Name:           "name",
 		Help:           "docstring",
 		VariableLabels: []string{"labelname"},
 	})
-	metric.Inc("val1")
-	metric.Inc("val2")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	metricVec.WithLabelValues("val1").Inc()
+	metricVec.WithLabelValues("val2").Inc()
 
 	varintBuf := make([]byte, binary.MaxVarintLen32)
 
@@ -425,7 +429,7 @@ metric: <
 	for i, scenario := range scenarios {
 		registry := newRegistry()
 		if scenario.withCounter {
-			registry.Register(metric)
+			registry.Register(metricVec)
 		}
 		if scenario.withExternalMF {
 			registry.metricFamilyInjectionHook = func() []*dto.MetricFamily {
@@ -471,22 +475,27 @@ metric: <
 // }
 
 func ExampleMustRegister() {
-	gauge := NewGauge(&Desc{
+	gauge, err := NewGauge(&Desc{
 		Name: "my_spiffy_metric",
 		Help: "it's spiffy description",
 	})
-
+	if err != nil {
+		panic(err)
+	}
 	MustRegister(gauge)
 }
 
 func ExampleMustRegisterOrGet() {
 	// I may have already registered this.
-	gauge := MustRegisterOrGet(NewGauge(&Desc{
+	gauge, err := NewGauge(&Desc{
 		Name: "my_spiffy_metric",
 		Help: "it's spiffy description",
-	}))
-
-	gauge.(Gauge).Set(42)
+	})
+	if err != nil {
+		panic(err)
+	}
+	gauge = MustRegisterOrGet(gauge).(Gauge)
+	gauge.Set(42)
 }
 
 func ExampleUnregister() {

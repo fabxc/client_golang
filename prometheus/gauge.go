@@ -6,27 +6,66 @@
 
 package prometheus
 
-import dto "github.com/prometheus/client_model/go"
+import (
+	"hash/fnv"
+
+	dto "github.com/prometheus/client_model/go"
+)
 
 // Gauge proxies a scalar value.
 type Gauge interface {
 	Metric
 	MetricsCollector
 
-	// Set assigns the value of this Gauge to the proxied value.
-	Set(float64, ...string) error
-	Inc(...string) error
-	Dec(...string) error
-	Add(float64, ...string) error
-	Sub(float64, ...string) error
-	// Del deletes a given label set from this Gauge, indicating whether the
-	// label set was deleted.
-	Del(...string) bool
+	Set(float64)
+	Inc()
+	Dec()
+	Add(float64)
+	Sub(float64)
 }
 
 // NewGauge emits a new Gauge from the provided descriptor.
 // The descriptor's Type field is ignored and forcefully set to MetricType_GAUGE.
-func NewGauge(desc *Desc) Gauge {
+func NewGauge(desc *Desc) (Gauge, error) {
+	if len(desc.VariableLabels) > 0 {
+		return nil, errLabelsForSimpleMetric
+	}
 	desc.Type = dto.MetricType_GAUGE
-	return NewValueMetric(desc)
+	return NewValue(desc, 0)
+}
+
+type GaugeVec struct {
+	MetricVec
+}
+
+func NewGaugeVec(desc *Desc) (*GaugeVec, error) {
+	if len(desc.VariableLabels) == 0 {
+		return nil, errNoLabelsForVecMetric
+	}
+	desc.Type = dto.MetricType_GAUGE
+	return &GaugeVec{
+		MetricVec: MetricVec{
+			children: map[uint64]Metric{},
+			desc:     desc,
+			hash:     fnv.New64a(),
+		},
+	}, nil
+}
+
+func (m *GaugeVec) GetMetricWithLabelValues(dims ...string) (Gauge, error) {
+	metric, err := m.MetricVec.GetMetricWithLabelValues(dims...)
+	return metric.(Gauge), err
+}
+
+func (m *GaugeVec) GetMetricWithLabels(labels map[string]string) (Gauge, error) {
+	metric, err := m.MetricVec.GetMetricWithLabels(labels)
+	return metric.(Gauge), err
+}
+
+func (m *GaugeVec) WithLabelValues(dims ...string) Gauge {
+	return m.MetricVec.WithLabelValues(dims...).(Gauge)
+}
+
+func (m *GaugeVec) WithLabels(labels map[string]string) Gauge {
+	return m.MetricVec.WithLabels(labels).(Gauge)
 }

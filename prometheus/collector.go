@@ -21,25 +21,27 @@ type MetricsCollector interface {
 	DescribeMetrics() []*Desc
 	// CollectMetrics is called by Prometheus when collecting metrics. Each
 	// returned metric has a different descriptor, and each descriptor is
-	// one of those returned by DescribeMetrics. This method may be called
-	// concurrently and must therefore be implemented in a concurrency safe
-	// way. Blocking occurs at the expense of total performance of rendering
-	// all registered metrics.  Ideally MetricsCollector implementations
-	// should support concurrent readers.
+	// one of those returned by DescribeMetrics. The returned metrics are
+	// sorted consistently. This method may be called concurrently and must
+	// therefore be implemented in a concurrency safe way. Blocking occurs
+	// at the expense of total performance of rendering all registered
+	// metrics.  Ideally MetricsCollector implementations should support
+	// concurrent readers.
 	CollectMetrics() []Metric
 }
 
 // SelfCollector implements MetricsCollector for a single metric so that that
 // metric collects itself. Add it as an anonymous field to a struct that
-// implements Metric.
+// implements Metric, and set MetricSlice and DescSlice appropriately.
 type SelfCollector struct {
-	Self Metric
+	MetricSlice []Metric
+	DescSlice   []*Desc
 }
 
 func (c *SelfCollector) DescribeMetrics() []*Desc {
-	return []*Desc{c.Self.Desc()}
+	return c.DescSlice
 }
 
 func (c *SelfCollector) CollectMetrics() []Metric {
-	return []Metric{c.Self}
+	return c.MetricSlice
 }

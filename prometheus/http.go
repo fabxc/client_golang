@@ -50,10 +50,10 @@ func InstrumentHandler(path string, hnd http.Handler) http.HandlerFunc {
 
 		method := sanitizeMethod(r.Method)
 		code := sanitizeCode(delegate.status)
-		reqCnt.Inc(path, method, code)
-		reqDur.Observe(elapsed, path, method, code)
-		resSz.Observe(float64(delegate.written), path, method, code)
-		reqSz.Observe(float64(<-out), path, method, code)
+		reqCnt.WithLabelValues(path, method, code).Inc()
+		reqDur.WithLabelValues(path, method, code).Observe(elapsed)
+		resSz.WithLabelValues(path, method, code).Observe(float64(delegate.written))
+		reqSz.WithLabelValues(path, method, code).Observe(float64(<-out))
 	})
 }
 
@@ -225,46 +225,48 @@ func sanitizeCode(s int) string {
 	}
 }
 
-var instLabels = []string{"handler", "method", "code"}
+var (
+	instLabels = []string{"handler", "method", "code"}
 
-var reqCnt = NewCounter(&Desc{
-	Subsystem:      "http",
-	Name:           "requests_total",
-	Help:           "Total no. of HTTP requests made.",
-	VariableLabels: instLabels,
-})
-
-var reqDur = NewSummary(
-	&Desc{
-		Subsystem: "http",
-		Name:      "requests_duration_ms",
-
-		Help:           "The request latencies.",
+	reqCnt, _ = NewCounterVec(&Desc{
+		Subsystem:      "http",
+		Name:           "requests_total",
+		Help:           "Total no. of HTTP requests made.",
 		VariableLabels: instLabels,
-	},
-	&SummaryOptions{},
-)
+	})
 
-var reqSz = NewSummary(
-	&Desc{
-		Subsystem: "http",
-		Name:      "requests_size_bytes",
+	reqDur, _ = NewSummaryVec(
+		&Desc{
+			Subsystem: "http",
+			Name:      "requests_duration_ms",
 
-		Help:           "The request sizes.",
-		VariableLabels: instLabels,
-	},
-	&SummaryOptions{},
-)
+			Help:           "The request latencies.",
+			VariableLabels: instLabels,
+		},
+		&SummaryOptions{},
+	)
 
-var resSz = NewSummary(
-	&Desc{
-		Subsystem: "http",
-		Name:      "response_size_bytes",
+	reqSz, _ = NewSummaryVec(
+		&Desc{
+			Subsystem: "http",
+			Name:      "requests_size_bytes",
 
-		Help:           "The response sizes.",
-		VariableLabels: instLabels,
-	},
-	&SummaryOptions{},
+			Help:           "The request sizes.",
+			VariableLabels: instLabels,
+		},
+		&SummaryOptions{},
+	)
+
+	resSz, _ = NewSummaryVec(
+		&Desc{
+			Subsystem: "http",
+			Name:      "response_size_bytes",
+
+			Help:           "The response sizes.",
+			VariableLabels: instLabels,
+		},
+		&SummaryOptions{},
+	)
 )
 
 func init() {

@@ -8,6 +8,7 @@ package prometheus
 
 import (
 	"errors"
+	"hash/fnv"
 	"sort"
 	"sync"
 	"time"
@@ -28,8 +29,7 @@ type Summary interface {
 	Metric
 	MetricsCollector
 
-	Observe(float64, ...string) // TODO de-panic-fy, return Error instead, also Del
-	Del(...string) bool
+	Observe(float64)
 }
 
 // DefObjectives are the default Summary quantile values and their respective
@@ -71,11 +71,21 @@ type SummaryOptions struct {
 
 // NewSummary generates a new Summary from the provided descriptor and options.
 // The descriptor's Type field is ignored and forcefully set to MetricType_SUMMARY.
-func NewSummary(desc *Desc, opts *SummaryOptions) Summary {
+func NewSummary(desc *Desc, opts *SummaryOptions) (Summary, error) {
+	if len(desc.VariableLabels) > 0 {
+		return nil, errLabelsForSimpleMetric
+	}
+	return newSummary(desc, opts)
+}
+
+func newSummary(desc *Desc, opts *SummaryOptions, dims ...string) (Summary, error) {
+	if len(desc.VariableLabels) != len(dims) {
+		return nil, errInconsistentCardinality
+	}
 	desc.Type = dto.MetricType_SUMMARY
 
 	if opts.BufCap < 0 {
-		panic(errIllegalCapDesc)
+		return nil, errIllegalCapDesc
 	} else if opts.BufCap == 0 {
 		opts.BufCap = DefBufCap
 	}
@@ -95,26 +105,18 @@ func NewSummary(desc *Desc, opts *SummaryOptions) Summary {
 		invs = append(invs, quantile.Known(rank, acc))
 	}
 
-	if len(desc.VariableLabels) == 0 {
-		result := &summary{
-			desc:      desc,
-			opts:      opts,
-			hotBuf:    make([]float64, 0, opts.BufCap),
-			coldBuf:   make([]float64, 0, opts.BufCap),
-			lastFlush: time.Now(),
-			invs:      invs,
-		}
-		result.Self = result
-		return result
+	result := &summary{
+		desc:      desc,
+		opts:      opts,
+		dims:      dims,
+		hotBuf:    make([]float64, 0, opts.BufCap),
+		coldBuf:   make([]float64, 0, opts.BufCap),
+		lastFlush: time.Now(),
+		invs:      invs,
 	}
-	result := &summaryVec{
-		desc:     desc,
-		opts:     opts,
-		children: make(map[uint64]*summaryVecElem),
-		invs:     invs,
-	}
-	result.Self = result
-	return result
+	result.MetricSlice = []Metric{result}
+	result.DescSlice = []*Desc{desc}
+	return result, nil
 }
 
 type summary struct {
@@ -125,6 +127,7 @@ type summary struct {
 
 	desc            *Desc
 	opts            *SummaryOptions
+	dims            []string
 	sum             float64
 	cnt             uint64
 	hotBuf, coldBuf []float64
@@ -207,10 +210,7 @@ func (s *summary) flush() {
 	s.lastFlush = time.Now()
 }
 
-func (s *summary) Observe(v float64, dims ...string) {
-	if len(dims) != 0 {
-		panic(errInconsistentCardinality)
-	}
+func (s *summary) Observe(v float64) {
 	s.bufMtx.Lock()
 	defer s.bufMtx.Unlock()
 	if ok := s.fastIngest(v); ok {
@@ -220,19 +220,7 @@ func (s *summary) Observe(v float64, dims ...string) {
 	s.slowIngest()
 }
 
-func (s *summary) Del(dims ...string) bool {
-	if len(dims) != 0 {
-		panic(errInconsistentCardinality)
-	}
-	return false
-}
-
-func (s *summary) Write(out *dto.MetricFamily) {
-	if out == nil {
-		panic("illegal")
-	}
-	out.Type = dto.MetricType_SUMMARY.Enum()
-
+func (s *summary) Write(out *dto.Metric) {
 	s.bufMtx.Lock()
 	s.mtx.Lock()
 
@@ -260,43 +248,21 @@ func (s *summary) Write(out *dto.MetricFamily) {
 	s.mtx.Unlock()
 	s.bufMtx.Unlock()
 
-	out.Metric = []*dto.Metric{{
-		Summary: sum,
-		Label:   s.desc.presetLabelPairs,
-	}}
-}
-
-type summaryVecElem struct {
-	dims []string
-
-	bufMtx sync.Mutex
-	mtx    sync.Mutex
-
-	desc            *Desc
-	opts            *SummaryOptions
-	sum             float64
-	cnt             uint64
-	hotBuf, coldBuf []float64
-
-	invs []quantile.Estimate
-
-	est *quantile.Estimator
-
-	lastFlush time.Time
-}
-
-func (s *summaryVecElem) Observe(v float64) {
-	s.bufMtx.Lock()
-	defer s.bufMtx.Unlock()
-
-	s.sum += v
-	s.cnt++
-
-	if ok := s.fastIngest(v); ok {
-		return
+	if len(sum.Quantile) > 0 {
+		sort.Sort(quantSort(sum.Quantile))
 	}
+	labels := make([]*dto.LabelPair, 0, len(s.desc.PresetLabels)+len(s.desc.VariableLabels))
+	labels = append(labels, s.desc.presetLabelPairs...)
+	for i, n := range s.desc.VariableLabels {
+		labels = append(labels, &dto.LabelPair{
+			Name:  proto.String(n),
+			Value: proto.String(s.dims[i]),
+		})
+	}
+	sort.Sort(lpSorter(labels))
 
-	s.slowIngest()
+	out.Summary = sum
+	out.Label = labels
 }
 
 type quantSort []*dto.Quantile
@@ -313,199 +279,29 @@ func (s quantSort) Less(i, j int) bool {
 	return s[i].GetQuantile() < s[j].GetQuantile()
 }
 
-func (s *summaryVecElem) Write(o *dto.Metric) {
-	s.bufMtx.Lock()
-	s.mtx.Lock()
-
-	o.Summary = &dto.Summary{
-		SampleCount: proto.Uint64(s.cnt),
-		SampleSum:   proto.Float64(s.sum),
-	}
-
-	if s.needFullCompact() {
-		s.fullCompact()
-		qs := make([]*dto.Quantile, 0, len(s.opts.Objectives))
-		for rnk := range s.opts.Objectives {
-			qs = append(qs, &dto.Quantile{
-				Quantile: proto.Float64(rnk),
-				Value:    proto.Float64(s.est.Get(rnk)),
-			})
-		}
-		o.Summary.Quantile = qs
-	}
-
-	s.mtx.Unlock()
-	s.bufMtx.Unlock()
-
-	dims := make([]*dto.LabelPair, 0, len(s.desc.PresetLabels)+len(s.desc.VariableLabels))
-	dims = append(dims, s.desc.presetLabelPairs...)
-	for i, n := range s.desc.VariableLabels {
-		dims = append(dims, &dto.LabelPair{
-			Name:  proto.String(n),
-			Value: proto.String(s.dims[i]),
-		})
-	}
-	sort.Sort(lpSorter(dims))
-	o.Label = dims
-
-	if len(o.Summary.Quantile) > 0 {
-		sort.Sort(quantSort(o.Summary.Quantile))
-	}
-	sort.Sort(lpSorter(dims))
+type SummaryVec struct {
+	MetricVec
 }
 
-func (s *summaryVecElem) newEst() {
-	s.est = quantile.New(s.invs...)
+func NewSummaryVec(desc *Desc, opts *SummaryOptions) (*SummaryVec, error) {
+	if len(desc.VariableLabels) == 0 {
+		return nil, errNoLabelsForVecMetric
+	}
+	desc.Type = dto.MetricType_SUMMARY
+	return &SummaryVec{
+		MetricVec: MetricVec{
+			children: map[uint64]Metric{},
+			desc:     desc,
+			hash:     fnv.New64a(),
+			opts:     opts,
+		},
+	}, nil
 }
 
-func (s *summaryVecElem) fastIngest(v float64) bool {
-	s.hotBuf = append(s.hotBuf, v)
-
-	return len(s.hotBuf) < cap(s.hotBuf)
+func (m *SummaryVec) WithLabelValues(dims ...string) Summary {
+	return m.MetricVec.WithLabelValues(dims...).(Summary)
 }
 
-func (s *summaryVecElem) slowIngest() {
-	s.mtx.Lock()
-	s.hotBuf, s.coldBuf = s.coldBuf, s.hotBuf
-	s.hotBuf = s.hotBuf[0:0]
-
-	// Unblock the original goroutine that was responsible for the mutation that
-	// triggered the compaction.  But hold onto the global non-buffer state mutex
-	// until the operation finishes.
-	go func() {
-		s.partialCompact()
-		s.mtx.Unlock()
-	}()
-}
-
-func (s *summaryVecElem) partialCompact() {
-	if s.est == nil {
-		s.newEst()
-	}
-	for _, v := range s.coldBuf {
-		s.est.Add(v)
-		s.cnt++
-		s.sum += v
-	}
-	s.coldBuf = s.coldBuf[0:0]
-}
-
-func (s *summaryVecElem) fullCompact() {
-	s.partialCompact()
-	for _, v := range s.hotBuf {
-		s.est.Add(v)
-		s.cnt++
-		s.sum += v
-	}
-	s.hotBuf = s.hotBuf[0:0]
-}
-
-func (s *summaryVecElem) needFullCompact() bool {
-	return !(s.est == nil && len(s.hotBuf) == 0)
-}
-
-func (s *summaryVecElem) maybeFlush() {
-	if s.opts.FlushInter == 0 {
-		return
-	}
-
-	if time.Since(s.lastFlush) < s.opts.FlushInter {
-		return
-	}
-
-	s.flush()
-}
-
-func (s *summaryVecElem) flush() {
-	s.est = nil
-	s.lastFlush = time.Now()
-}
-
-type summaryVec struct {
-	SelfCollector
-
-	desc     *Desc
-	opts     *SummaryOptions
-	mtx      sync.RWMutex
-	invs     []quantile.Estimate
-	children map[uint64]*summaryVecElem
-}
-
-func (s *summaryVec) Desc() *Desc {
-	return s.desc
-}
-
-func (s *summaryVec) Write(out *dto.MetricFamily) {
-	out.Type = dto.MetricType_SUMMARY.Enum()
-
-	s.mtx.RLock()
-	elems := map[uint64]*summaryVecElem{}
-	hashes := make([]uint64, 0, len(elems))
-	for h, e := range s.children {
-		elems[h] = e
-		hashes = append(hashes, h)
-	}
-	s.mtx.RUnlock()
-
-	sort.Sort(hashSorter(hashes))
-
-	ss := make([]*dto.Metric, 0, len(hashes))
-	for _, h := range hashes {
-		c := new(dto.Metric)
-		elems[h].Write(c)
-		ss = append(ss, c)
-	}
-
-	out.Metric = ss
-}
-
-func (s *summaryVec) Observe(v float64, dims ...string) {
-	if len(dims) != len(s.desc.VariableLabels) {
-		panic(errInconsistentCardinality)
-	}
-
-	h := uint64(0) // TODO hashLabelValues(dims...)
-
-	s.mtx.RLock()
-	if vec, ok := s.children[h]; ok {
-		s.mtx.RUnlock()
-		vec.Observe(v)
-		return
-	}
-	s.mtx.RUnlock()
-
-	s.mtx.Lock()
-	defer s.mtx.Unlock()
-	if vec, ok := s.children[h]; ok {
-		vec.Observe(v)
-		return
-	}
-	s.children[h] = &summaryVecElem{
-		desc:      s.desc,
-		opts:      s.opts,
-		dims:      dims,
-		hotBuf:    make([]float64, 0, s.opts.BufCap),
-		coldBuf:   make([]float64, 0, s.opts.BufCap),
-		lastFlush: time.Now(),
-		invs:      s.invs,
-	}
-	s.children[h].Observe(v) // XXX
-}
-
-func (s *summaryVec) Del(ls ...string) bool {
-	// TODO: Is this doing the right thing?
-	if len(ls) != len(s.desc.VariableLabels) {
-		panic(errInconsistentCardinality)
-	}
-
-	h := uint64(0) // TODO hashLabelValues(ls...)
-
-	s.mtx.Lock()
-	defer s.mtx.Unlock()
-
-	if _, has := s.children[h]; !has {
-		return false
-	}
-	delete(s.children, h)
-	return true
+func (m *SummaryVec) WithLabels(labels map[string]string) Summary {
+	return m.MetricVec.WithLabels(labels).(Summary)
 }
