@@ -182,6 +182,7 @@ func buildDescsAndCalculateCollectorID(descs []*Desc) (uint64, error) {
 	return h.Sum64(), nil
 }
 
+// TODO: Consider a way to give access to non-default registries.
 func newRegistry() *registry {
 	return &registry{
 		metricsCollectorsByID: map[uint64]MetricsCollector{},
@@ -301,7 +302,7 @@ func (r *registry) writePB(w io.Writer, writeEncoded encoder) (int, error) {
 		// TODO: Vet concurrent collection of metrics.
 		for _, metric := range collector.CollectMetrics() {
 			desc := metric.Desc()
-			// TODO: Optional check if desc is an element of collector.DescribeMetrics().
+			// TODO: Configurable check if desc is an element of collector.DescribeMetrics().
 			metricFamily, ok := metricFamiliesByName[desc.canonName]
 			if !ok {
 				// TODO: Vet getting MetricFamily object from pool.
@@ -315,7 +316,7 @@ func (r *registry) writePB(w io.Writer, writeEncoded encoder) (int, error) {
 			// TODO: Vet getting Metric object from pool.
 			dtoMetric := &dto.Metric{}
 			metric.Write(dtoMetric)
-			// TODO: Optional check if dtoMetric is consistent with desc.
+			// TODO: Configurable check if dtoMetric is consistent with desc.
 			metricFamily.Metric = append(metricFamily.Metric, dtoMetric)
 		}
 	}

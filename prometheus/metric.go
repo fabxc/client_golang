@@ -127,6 +127,9 @@ func (d *Desc) build() error {
 	default:
 		d.canonName = d.Name
 	}
+	// TODO: Check that the resulting canonName and all the label names
+	// (preset and variable) are valid identifiers in the Prometheus
+	// expression language.
 
 	// labelValues contain the label values of preset labels (in order of
 	// their sorted label names) plus the canonName (at position 0).
