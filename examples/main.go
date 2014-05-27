@@ -1,6 +1,7 @@
 package main
 
 import (
+	"expvar"
 	"log"
 	"net/http"
 	"runtime"
@@ -12,9 +13,9 @@ import (
 )
 
 func main() {
-	http.Handle("/metrics", prometheus.Handler)
-
-	// A simple counter.
+	///////////////////////
+	// A simple counter. //
+	///////////////////////
 	indexed, _ := prometheus.NewCounter(&prometheus.Desc{
 		Name: "documents_indexed",
 		Help: "The number of documents indexed.",
@@ -35,13 +36,13 @@ func main() {
 	// })
 	// prometheus.MustRegister(indexed)
 	//
-	// // The following look the same as above, but if you gave spurious
-	// // args here, it would be a compile error.
 	// indexed.Set(42)
 	// indexed.Dec()
 	// indexed.Add(100)
 
-	// A counter with dimensions.
+	////////////////////////////////
+	// A counter with dimensions. //
+	////////////////////////////////
 	searched, _ := prometheus.NewCounterVec(&prometheus.Desc{
 		Name:           "documents_searched",
 		Help:           "The number of documents indexed.",
@@ -49,11 +50,16 @@ func main() {
 	})
 	prometheus.MustRegister(searched)
 
+	// "Quick&easy" way: Pass in label values in order:
 	searched.WithLabelValues("200", "prod").Set(2001)
+	// "Safer" way (but more effort): Pass in labels as a map.
 	searched.WithLabels(map[string]string{"status_code": "404", "version": "test"}).Set(4)
-	// Proposal to do out-of-order labels with name->value pairs:
+	// Alternative "safe" proposal: name->value pairs (less safe than the map above):
 	// searched.WithLabels("status_code", "404", "version", "test").Set(4)
-	searched.WithLabelValues("200", "prod").Inc()
+
+	// For even faster repeated access, a reference to the metric object can be kept.
+	m := searched.WithLabelValues("200", "prod")
+	m.Inc()
 
 	// Same with the OP:
 	// searched := prometheus.NewCounterVec(prometheus.CounterVecDesc{
@@ -65,13 +71,13 @@ func main() {
 	// })
 	// prometheus.MustRegister(searched)
 	//
-	// // The following look the same again, but this time, spurious or
-	// // missing args would not cause a compile error, either.
 	// searched.Set(2001, "200", "prod")
 	// searched.Set(4, "404", "test")
 	// searched.Inc("200", "prod")
 
-	// A summary with fancy options.
+	///////////////////////////////////
+	// A summary with fancy options. //
+	///////////////////////////////////
 	summary, _ := prometheus.NewSummary(
 		&prometheus.Desc{
 			Name: "fancy_summary",
@@ -104,7 +110,54 @@ func main() {
 	// })
 	// prometheus.MustRegister(summary)
 
-	// Expose memstats. (This would not work with the OP.)
+	////////////////////
+	// Expose expvar. //
+	////////////////////
+	expvarCollector, _ := prometheus.NewExpvarCollector(map[string]*prometheus.Desc{
+		"memstats": &prometheus.Desc{
+			Name:           "expvar_memstats",
+			Help:           "All numeric memstats as one metric family. Not a good role-model, actually... ;-)",
+			Type:           dto.MetricType_UNTYPED, // To not imply this mash-up has any meaning...
+			VariableLabels: []string{"type"},
+		},
+		"lone_int": &prometheus.Desc{
+			Name: "expvar_lone_int",
+			Help: "Just an expvar int as an example.",
+			Type: dto.MetricType_GAUGE,
+		},
+		"complex_map": &prometheus.Desc{
+			Name:           "expvar_complex_map",
+			Help:           "A silly map to demonstrate depth two...",
+			Type:           dto.MetricType_COUNTER,
+			VariableLabels: []string{"en", "de"},
+		},
+	})
+	prometheus.MustRegister(expvarCollector)
+
+	// The Prometheus part is done here. But to show that this example is
+	// doing anything, we have to manually export something via expvar.
+	expvar.NewInt("lone_int").Set(42)
+	expvarMap := expvar.NewMap("complex_map")
+	var (
+		expvarMap1, expvarMap2                             expvar.Map
+		expvarInt11, expvarInt12, expvarInt21, expvarInt22 expvar.Int
+	)
+	expvarMap1.Init()
+	expvarMap2.Init()
+	expvarInt11.Set(11)
+	expvarInt12.Set(12)
+	expvarInt21.Set(21)
+	expvarInt22.Set(22)
+	expvarMap1.Set("dings", &expvarInt11)
+	expvarMap1.Set("bums", &expvarInt12)
+	expvarMap2.Set("dings", &expvarInt21)
+	expvarMap2.Set("bums", &expvarInt22)
+	expvarMap.Set("foo", &expvarMap1)
+	expvarMap.Set("bar", &expvarMap2)
+
+	//////////////////////
+	// Expose memstats. //
+	//////////////////////
 	MemStatsDescriptors := []*prometheus.Desc{
 		&prometheus.Desc{
 			Subsystem: "memstats",
@@ -127,14 +180,17 @@ func main() {
 	}
 	prometheus.MustRegister(&MemStatsCollector{Descs: MemStatsDescriptors})
 
-	// Multi-worker cluster management, where each worker funnels into the
+	//////////////////////////////////////
+	// Multi-worker cluster management. //
+	//////////////////////////////////////
+	// Here each worker funnels into the
 	// same set of multiple metrics.
-	// (This would not work with the OP.)
 	workerDB := NewClusterManager("db")
 	workerCA := NewClusterManager("ca")
 	prometheus.MustRegister(workerDB)
 	prometheus.MustRegister(workerCA)
 
+	http.Handle("/metrics", prometheus.Handler)
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
@@ -154,13 +210,17 @@ func (m *MemStatsCollector) CollectMetrics() []prometheus.Metric {
 		[]float64{float64(ms.Alloc), float64(ms.TotalAlloc), float64(ms.NumGC)},
 	)
 	return metrics
-	// If you don't like the ordering aspect of the above, you could do the following,
-	// where order doesn't matter:
+	// If you don't like the ordering aspect of the above, you could do the
+	// following, where order doesn't matter:
 	// return []Metric{
 	//         NewStaticMetric(desc[0],float64(ms.Alloc)),
 	//         NewStaticMetric(desc[1],float64(ms.TotalAlloc)),
 	//         NewStaticMetric(desc[2],float64(ms.NumGC)),
 	// }
+
+	// To avoid new allocations each scrape, you could also keep metric
+	// objects around and return the same objects each time, just with new
+	// values set.
 }
 
 type ClusterManager struct {
@@ -193,7 +253,7 @@ func (c *ClusterManager) CollectMetrics() []prometheus.Metric {
 	// Create metrics from scratch each time because hosts that have gone
 	// away since the last scrape must not stay around.  If that's too much
 	// of a resource drain, keep the metrics around and reset them
-	// carefully.
+	// properly.
 	oomCountCounter, _ := prometheus.NewCounterVec(c.OOMCountDesc)
 	ramUsageGauge, _ := prometheus.NewGaugeVec(c.RAMUsageDesc)
 	oomCountByHost, ramUsageByHost := c.ReallyExpensiveAssessmentOfTheSystemState()

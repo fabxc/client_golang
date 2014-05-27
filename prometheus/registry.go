@@ -298,13 +298,13 @@ func (r *registry) writePB(w io.Writer, writeEncoded encoder) (int, error) {
 	defer r.mtx.RUnlock()
 
 	for _, collector := range collectors {
-		// TODO: Evaluate collecting metrics concurrently.
+		// TODO: Vet concurrent collection of metrics.
 		for _, metric := range collector.CollectMetrics() {
 			desc := metric.Desc()
 			// TODO: Optional check if desc is an element of collector.DescribeMetrics().
 			metricFamily, ok := metricFamiliesByName[desc.canonName]
 			if !ok {
-				// TODO: Evaluate getting MetricFamily object from pool.
+				// TODO: Vet getting MetricFamily object from pool.
 				metricFamily = &dto.MetricFamily{
 					Name: proto.String(desc.canonName),
 					Help: proto.String(desc.Help),
@@ -312,7 +312,7 @@ func (r *registry) writePB(w io.Writer, writeEncoded encoder) (int, error) {
 				}
 				metricFamiliesByName[desc.canonName] = metricFamily
 			}
-			// TODO: Evaluate getting Metric object from pool.
+			// TODO: Vet getting Metric object from pool.
 			dtoMetric := &dto.Metric{}
 			metric.Write(dtoMetric)
 			// TODO: Optional check if dtoMetric is consistent with desc.

@@ -124,18 +124,18 @@ func populateMetric(
 // changed. It is well suited for throw-away metrics that are just generated to
 // hand a value over to Prometheus (usually in a CollectMetrics method).  The
 // descriptor must have been registered with Prometheus before. Its Type field
-// must not be MetricType_SUMMARY. It must not have any variable labels.
-func NewStaticMetric(desc *Desc, v float64) (Metric, error) {
+// must not be MetricType_SUMMARY.
+func NewStaticMetric(desc *Desc, v float64, dims ...string) (Metric, error) {
 	if desc.canonName == "" {
 		return nil, errDescriptorNotRegistered
 	}
 	if desc.Type == dto.MetricType_SUMMARY {
 		return nil, errSummaryInStaticMetric
 	}
-	if len(desc.VariableLabels) != 0 {
+	if len(desc.VariableLabels) != len(dims) {
 		return nil, errInconsistentCardinality
 	}
-	return &staticMetric{val: v, desc: desc}, nil
+	return &staticMetric{val: v, desc: desc, dims: dims}, nil
 }
 
 func NewStaticMetrics(descs []*Desc, vals []float64) ([]Metric, error) {
@@ -156,6 +156,7 @@ func NewStaticMetrics(descs []*Desc, vals []float64) ([]Metric, error) {
 type staticMetric struct {
 	val  float64
 	desc *Desc
+	dims []string
 }
 
 func (s *staticMetric) Desc() *Desc {
@@ -163,5 +164,5 @@ func (s *staticMetric) Desc() *Desc {
 }
 
 func (s *staticMetric) Write(out *dto.Metric) {
-	populateMetric(s.desc, s.val, nil, out)
+	populateMetric(s.desc, s.val, s.dims, out)
 }
