@@ -19,7 +19,7 @@ import (
 
 var (
 	errDescriptorNotRegistered             = errors.New("descriptor not registered")
-	errSummaryInStaticMetric               = errors.New("static metric not possible for summary")
+	errSummaryInConstMetric                = errors.New("const metric not possible for summary")
 	errSummaryInValueMetric                = errors.New("value metric not possible for summary")
 	errInconsistentLengthDescriptorsValues = errors.New("descriptor and value slice have inconsistent length")
 )
@@ -50,6 +50,16 @@ func NewValue(desc *Desc, val float64, dims ...string) (*Value, error) {
 	result.MetricSlice = []Metric{result}
 	result.DescSlice = []*Desc{desc}
 	return result, nil
+}
+
+// MustNewValue is a version of NewValue that panics where NewValue would
+// have returned an error.
+func MustNewValue(desc *Desc, val float64, dims ...string) *Value {
+	v, err := NewValue(desc, val, dims...)
+	if err != nil {
+		panic(err)
+	}
+	return v
 }
 
 func (v *Value) Desc() *Desc {
@@ -120,49 +130,69 @@ func populateMetric(
 	}
 }
 
-// NewStaticMetric returns a metric with one fixed value that cannot be
+// NewConstMetric returns a metric with one fixed value that cannot be
 // changed. It is well suited for throw-away metrics that are just generated to
 // hand a value over to Prometheus (usually in a CollectMetrics method).  The
 // descriptor must have been registered with Prometheus before. Its Type field
 // must not be MetricType_SUMMARY.
-func NewStaticMetric(desc *Desc, v float64, dims ...string) (Metric, error) {
+func NewConstMetric(desc *Desc, v float64, dims ...string) (Metric, error) {
 	if desc.canonName == "" {
 		return nil, errDescriptorNotRegistered
 	}
 	if desc.Type == dto.MetricType_SUMMARY {
-		return nil, errSummaryInStaticMetric
+		return nil, errSummaryInConstMetric
 	}
 	if len(desc.VariableLabels) != len(dims) {
 		return nil, errInconsistentCardinality
 	}
-	return &staticMetric{val: v, desc: desc, dims: dims}, nil
+	return &constMetric{val: v, desc: desc, dims: dims}, nil
 }
 
-func NewStaticMetrics(descs []*Desc, vals []float64) ([]Metric, error) {
+// MustNewConstMetric is a version of NewConstMetric that panics where
+// NewConstMetric would have returned an error.
+func MustNewConstMetric(desc *Desc, val float64, dims ...string) Metric {
+	m, err := NewConstMetric(desc, val, dims...)
+	if err != nil {
+		panic(err)
+	}
+	return m
+}
+
+func NewConstMetrics(descs []*Desc, vals []float64) ([]Metric, error) {
 	if len(descs) != len(vals) {
 		return nil, errInconsistentLengthDescriptorsValues
 	}
 	metrics := make([]Metric, 0, len(descs))
 	for i, desc := range descs {
-		sm, err := NewStaticMetric(desc, vals[i])
+		cm, err := NewConstMetric(desc, vals[i])
 		if err != nil {
 			return nil, err
 		}
-		metrics = append(metrics, sm)
+		metrics = append(metrics, cm)
 	}
 	return metrics, nil
 }
 
-type staticMetric struct {
+// MustNewConstMetrics is a version of NewConstMetrics that panics where
+// NewConstMetrics would have returned an error.
+func MustNewConstMetrics(descs []*Desc, vals []float64) []Metric {
+	m, err := NewConstMetrics(descs, vals)
+	if err != nil {
+		panic(err)
+	}
+	return m
+}
+
+type constMetric struct {
 	val  float64
 	desc *Desc
 	dims []string
 }
 
-func (s *staticMetric) Desc() *Desc {
+func (s *constMetric) Desc() *Desc {
 	return s.desc
 }
 
-func (s *staticMetric) Write(out *dto.Metric) {
+func (s *constMetric) Write(out *dto.Metric) {
 	populateMetric(s.desc, s.val, s.dims, out)
 }

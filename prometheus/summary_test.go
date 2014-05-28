@@ -114,7 +114,7 @@ func BenchmarkSummaryWrite8(b *testing.B) {
 }
 
 func ExampleSummary() {
-	temps, _ := NewSummary(
+	temps := MustNewSummary(
 		&Desc{
 			Name: "pond_temperature",
 			Help: "The temperature of the frog pond.", // Sorry, we can't measure how badly it smells.
@@ -131,7 +131,7 @@ func ExampleSummary() {
 }
 
 func ExampleSummaryVec() {
-	temps, _ := NewSummaryVec(
+	temps := MustNewSummaryVec(
 		&Desc{
 			Name:           "pond_temperature",
 			Help:           "The temperature of the frog pond.", // Sorry, we can't measure how badly it smells.

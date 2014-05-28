@@ -29,7 +29,44 @@ type ExpvarCollector struct {
 
 // NewExpvarCollector returns a newly allocated ExpvarCollector that still has
 // to be registered with the Prometheus registry.
-// TODO: Describe usage. No summaries! Maps!
+//
+// The exports map has the following meaning:
+//
+// The keys in the map correspond to expvar keys, i.e. for every expvar key you
+// want to export as Prometheus metric, you need an entry in the exports
+// map. The descriptor mapped to each key describes how to export the expvar
+// value. It defines name, help string, and type of the Prometheus metric
+// proxying the expvar value. The type can be anything but a summary.
+//
+// For descriptors without variable labels, the expvar value must be a number or
+// a bool. The number is then directly exported as the Prometheus sample
+// value. (For a bool, 'false' translates to 0 and 'true' to 1). Expvar values
+// that are not numbers or bools are silently ignored.
+//
+// If the descriptor has one variable label, the expvar value must be an expvar
+// map. The keys in the expvar map become the various values of the one
+// Prometheus label. The values in the expvar map must be numbers or bools again
+// as above.
+//
+// For descriptors with more than one variable lable, the expvar must be a
+// nested expvar map, i.e. where the values of the topmost map are maps again
+// etc. until a depth is reached that corresponds to the number of labels. The
+// leaves of that structure must be numbers or bools as above to serve as the
+// sample values.
+//
+// Example:
+//
+// expvar exports the following map:
+// "http_request_count": {"200": {"POST": 11, "GET": 212}, "404": {"POST": 3, "GET": 13}}
+//
+// The following descriptor would be suitable to convert that expvar map into a
+// Prometheus metric:
+// prometheus.Desc{
+//     Name: "http_request_count",
+//     Help: "Number of HTTP requests.",
+//     Type:  dto.MetricType_COUNTER,
+//     VariableLabels: []string{"status_code", "method"},
+// }
 func NewExpvarCollector(exports map[string]*Desc) (*ExpvarCollector, error) {
 	descs := make([]*Desc, 0, len(exports))
 	for _, desc := range exports {
@@ -42,6 +79,16 @@ func NewExpvarCollector(exports map[string]*Desc) (*ExpvarCollector, error) {
 		exports: exports,
 		descs:   descs,
 	}, nil
+}
+
+// MustNewExpvarCollector is a version of NewExpvarCollector that panics where
+// NewExpvarCollector would have returned an error.
+func MustNewExpvarCollector(exports map[string]*Desc) *ExpvarCollector {
+	e, err := NewExpvarCollector(exports)
+	if err != nil {
+		panic(err)
+	}
+	return e
 }
 
 func (e *ExpvarCollector) DescribeMetrics() []*Desc {
@@ -66,12 +113,12 @@ func (e *ExpvarCollector) CollectMetrics() []Metric {
 					dims := append(make([]string, 0, len(labels)), labels...)
 					switch v := v.(type) {
 					case float64:
-						m, _ = NewStaticMetric(desc, v, dims...)
+						m = MustNewConstMetric(desc, v, dims...)
 					case bool:
 						if v {
-							m, _ = NewStaticMetric(desc, 1, dims...)
+							m = MustNewConstMetric(desc, 1, dims...)
 						} else {
-							m, _ = NewStaticMetric(desc, 0, dims...)
+							m = MustNewConstMetric(desc, 0, dims...)
 						}
 					default:
 						return

@@ -78,6 +78,16 @@ func NewSummary(desc *Desc, opts *SummaryOptions) (Summary, error) {
 	return newSummary(desc, opts)
 }
 
+// MustNewSummary is a version of NewSummary that panics where NewSummary would
+// have returned an error.
+func MustNewSummary(desc *Desc, opts *SummaryOptions) Summary {
+	s, err := NewSummary(desc, opts)
+	if err != nil {
+		panic(err)
+	}
+	return s
+}
+
 func newSummary(desc *Desc, opts *SummaryOptions, dims ...string) (Summary, error) {
 	if len(desc.VariableLabels) != len(dims) {
 		return nil, errInconsistentCardinality
@@ -296,6 +306,16 @@ func NewSummaryVec(desc *Desc, opts *SummaryOptions) (*SummaryVec, error) {
 			opts:     opts,
 		},
 	}, nil
+}
+
+// MustNewSummaryVec is a version of NewSummaryVec that panics where NewSummaryVec would
+// have returned an error.
+func MustNewSummaryVec(desc *Desc, opts *SummaryOptions) *SummaryVec {
+	s, err := NewSummaryVec(desc, opts)
+	if err != nil {
+		panic(err)
+	}
+	return s
 }
 
 func (m *SummaryVec) WithLabelValues(dims ...string) Summary {

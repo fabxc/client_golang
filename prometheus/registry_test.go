@@ -34,14 +34,11 @@ func (r *fakeResponseWriter) WriteHeader(c int) {
 
 func testHandler(t testing.TB) {
 
-	metricVec, err := NewCounterVec(&Desc{
+	metricVec := MustNewCounterVec(&Desc{
 		Name:           "name",
 		Help:           "docstring",
 		VariableLabels: []string{"labelname"},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	metricVec.WithLabelValues("val1").Inc()
 	metricVec.WithLabelValues("val2").Inc()
@@ -475,25 +472,18 @@ metric: <
 // }
 
 func ExampleMustRegister() {
-	gauge, err := NewGauge(&Desc{
+	MustRegister(MustNewGauge(&Desc{
 		Name: "my_spiffy_metric",
 		Help: "it's spiffy description",
-	})
-	if err != nil {
-		panic(err)
-	}
-	MustRegister(gauge)
+	}))
 }
 
 func ExampleMustRegisterOrGet() {
 	// I may have already registered this.
-	gauge, err := NewGauge(&Desc{
+	gauge := MustNewGauge(&Desc{
 		Name: "my_spiffy_metric",
 		Help: "it's spiffy description",
 	})
-	if err != nil {
-		panic(err)
-	}
 	gauge = MustRegisterOrGet(gauge).(Gauge)
 	gauge.Set(42)
 }

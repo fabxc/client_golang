@@ -5,14 +5,11 @@ import (
 )
 
 func BenchmarkPrometheusCounter(b *testing.B) {
-	m, err := NewCounterVec(&Desc{
+	m := MustNewCounterVec(&Desc{
 		Name:           "benchmark_counter",
 		Help:           "A counter to benchmark it.",
 		VariableLabels: []string{"one", "two", "three"},
 	})
-	if err != nil {
-		b.Fatal(err)
-	}
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -21,13 +18,10 @@ func BenchmarkPrometheusCounter(b *testing.B) {
 }
 
 func BenchmarkPrometheusCounterNoLabels(b *testing.B) {
-	m, err := NewCounter(&Desc{
+	m := MustNewCounter(&Desc{
 		Name: "benchmark_counter",
 		Help: "A counter to benchmark it.",
 	})
-	if err != nil {
-		b.Fatal(err)
-	}
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -36,14 +30,11 @@ func BenchmarkPrometheusCounterNoLabels(b *testing.B) {
 }
 
 func BenchmarkPrometheusGauge(b *testing.B) {
-	m, err := NewGaugeVec(&Desc{
+	m := MustNewGaugeVec(&Desc{
 		Name:           "benchmark_gauge",
 		Help:           "A gauge to benchmark it.",
 		VariableLabels: []string{"one", "two", "three"},
 	})
-	if err != nil {
-		b.Fatal(err)
-	}
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -52,13 +43,10 @@ func BenchmarkPrometheusGauge(b *testing.B) {
 }
 
 func BenchmarkPrometheusGaugeNoLabels(b *testing.B) {
-	m, err := NewGauge(&Desc{
+	m := MustNewGauge(&Desc{
 		Name: "benchmark_gauge",
 		Help: "A gauge to benchmark it.",
 	})
-	if err != nil {
-		b.Fatal(err)
-	}
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -67,7 +55,7 @@ func BenchmarkPrometheusGaugeNoLabels(b *testing.B) {
 }
 
 func BenchmarkPrometheusSummary(b *testing.B) {
-	m, err := NewSummaryVec(
+	m := MustNewSummaryVec(
 		&Desc{
 			Name:           "benchmark_summary",
 			Help:           "A summary to benchmark it.",
@@ -75,9 +63,6 @@ func BenchmarkPrometheusSummary(b *testing.B) {
 		},
 		&SummaryOptions{},
 	)
-	if err != nil {
-		b.Fatal(err)
-	}
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -86,16 +71,13 @@ func BenchmarkPrometheusSummary(b *testing.B) {
 }
 
 func BenchmarkPrometheusSummaryNoLabels(b *testing.B) {
-	m, err := NewSummary(
+	m := MustNewSummary(
 		&Desc{
 			Name: "benchmark_summary",
 			Help: "A summary to benchmark it.",
 		},
 		&SummaryOptions{},
 	)
-	if err != nil {
-		b.Fatal(err)
-	}
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

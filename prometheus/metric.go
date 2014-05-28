@@ -101,8 +101,8 @@ var (
 	errLabelsForSimpleMetric   = errors.New("tried to create a simple metric with variable labels")
 	errNoLabelsForVecMetric    = errors.New("tried to create a vector metric without variable labels")
 
-	errEmptyLabelDesc = errors.New("vector may not be described by empty label dimension")
-	errDuplLabelDesc  = errors.New("vector may not be described by duplicate label dimension")
+	errEmptyLabelName = errors.New("empty label name")
+	errDuplLabelName  = errors.New("duplicate label name")
 )
 
 // build is called upon registration. It materializes cannonName and calculates
@@ -140,7 +140,7 @@ func (d *Desc) build() error {
 	// First add only the preset label names and sort them...
 	for labelName := range d.PresetLabels {
 		if labelName == "" {
-			return errEmptyLabelDesc
+			return errEmptyLabelName
 		}
 		labelNames = append(labelNames, labelName)
 		labelNameSet[labelName] = struct{}{}
@@ -155,16 +155,16 @@ func (d *Desc) build() error {
 	// dimension with a different mix between preset and variable labels.
 	for _, labelName := range d.VariableLabels {
 		if labelName == "" {
-			return errEmptyLabelDesc
+			return errEmptyLabelName
 		}
 		labelNames = append(labelNames, "$"+labelName)
 		labelNameSet[labelName] = struct{}{}
 	}
 	if len(labelNames) != len(labelNameSet) {
-		return errDuplLabelDesc
+		return errDuplLabelName
 	}
 	h := fnv.New64a()
-	var b bytes.Buffer
+	var b bytes.Buffer // To copy string contents into, avoiding []byte allocations.
 	for _, val := range labelValues {
 		b.Reset()
 		b.WriteString(val)

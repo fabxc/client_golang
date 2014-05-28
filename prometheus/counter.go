@@ -27,8 +27,9 @@ type Counter interface {
 	Add(float64)
 }
 
-// NewCounter emits a new Counter from the provided descriptor.
-// The Type field is ignored and forcefully set to MetricType_COUNTER.
+// NewCounter creates a new counter (without labels) based on the provided
+// descriptor. The Type field in the descriptor is ignored and forcefully set to
+// MetricType_COUNTER.
 func NewCounter(desc *Desc) (Counter, error) {
 	if len(desc.VariableLabels) > 0 {
 		return nil, errLabelsForSimpleMetric
@@ -38,6 +39,16 @@ func NewCounter(desc *Desc) (Counter, error) {
 	result.MetricSlice = []Metric{result}
 	result.DescSlice = []*Desc{desc}
 	return result, nil
+}
+
+// MustNewCounter is a version of NewCounter that panics where NewCounter would
+// have returned an error.
+func MustNewCounter(desc *Desc) Counter {
+	c, err := NewCounter(desc)
+	if err != nil {
+		panic(err)
+	}
+	return c
 }
 
 type counter struct {
@@ -67,6 +78,16 @@ func NewCounterVec(desc *Desc) (*CounterVec, error) {
 			hash:     fnv.New64a(),
 		},
 	}, nil
+}
+
+// MustNewCounterVec is a version of NewCounterVec that panics where NewCounterVec would
+// have returned an error.
+func MustNewCounterVec(desc *Desc) *CounterVec {
+	c, err := NewCounterVec(desc)
+	if err != nil {
+		panic(err)
+	}
+	return c
 }
 
 func (m *CounterVec) GetMetricWithLabelValues(dims ...string) (Counter, error) {

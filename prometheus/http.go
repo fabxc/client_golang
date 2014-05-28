@@ -228,14 +228,14 @@ func sanitizeCode(s int) string {
 var (
 	instLabels = []string{"handler", "method", "code"}
 
-	reqCnt, _ = NewCounterVec(&Desc{
+	reqCnt = MustNewCounterVec(&Desc{
 		Subsystem:      "http",
 		Name:           "requests_total",
 		Help:           "Total no. of HTTP requests made.",
 		VariableLabels: instLabels,
 	})
 
-	reqDur, _ = NewSummaryVec(
+	reqDur = MustNewSummaryVec(
 		&Desc{
 			Subsystem: "http",
 			Name:      "requests_duration_ms",
@@ -246,7 +246,7 @@ var (
 		&SummaryOptions{},
 	)
 
-	reqSz, _ = NewSummaryVec(
+	reqSz = MustNewSummaryVec(
 		&Desc{
 			Subsystem: "http",
 			Name:      "requests_size_bytes",
@@ -257,7 +257,7 @@ var (
 		&SummaryOptions{},
 	)
 
-	resSz, _ = NewSummaryVec(
+	resSz = MustNewSummaryVec(
 		&Desc{
 			Subsystem: "http",
 			Name:      "response_size_bytes",

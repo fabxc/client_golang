@@ -34,6 +34,16 @@ func NewGauge(desc *Desc) (Gauge, error) {
 	return NewValue(desc, 0)
 }
 
+// MustNewGauge is a version of NewGauge that panics where NewGauge would
+// have returned an error.
+func MustNewGauge(desc *Desc) Gauge {
+	g, err := NewGauge(desc)
+	if err != nil {
+		panic(err)
+	}
+	return g
+}
+
 type GaugeVec struct {
 	MetricVec
 }
@@ -50,6 +60,16 @@ func NewGaugeVec(desc *Desc) (*GaugeVec, error) {
 			hash:     fnv.New64a(),
 		},
 	}, nil
+}
+
+// MustNewGaugeVec is a version of NewGaugeVec that panics where NewGaugeVec would
+// have returned an error.
+func MustNewGaugeVec(desc *Desc) *GaugeVec {
+	g, err := NewGaugeVec(desc)
+	if err != nil {
+		panic(err)
+	}
+	return g
 }
 
 func (m *GaugeVec) GetMetricWithLabelValues(dims ...string) (Gauge, error) {

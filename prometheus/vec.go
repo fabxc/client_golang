@@ -26,8 +26,11 @@ type MetricVec struct {
 	children map[uint64]Metric
 	desc     *Desc
 
+	// hash is our own hash instance to avoid repeated allocations.
 	hash hash.Hash64
-	buf  bytes.Buffer
+	// buf is used to copy string contents into it for hashing,
+	// again to avoid allocations.
+	buf bytes.Buffer
 
 	opts *SummaryOptions // Only needed for summaries.
 }
@@ -187,9 +190,7 @@ func (m *MetricVec) getOrCreateMetric(hash uint64, dims ...string) Metric {
 				panic(err) // Cannot happen.
 			}
 		} else {
-			if metric, err = NewValue(m.desc, 0, copiedDims...); err != nil {
-				panic(err) // Cannot happen.
-			}
+			metric = MustNewValue(m.desc, 0, copiedDims...)
 		}
 		m.children[hash] = metric
 	}

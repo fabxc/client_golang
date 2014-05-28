@@ -16,7 +16,7 @@ func main() {
 	///////////////////////
 	// A simple counter. //
 	///////////////////////
-	indexed, _ := prometheus.NewCounter(&prometheus.Desc{
+	indexed := prometheus.MustNewCounter(&prometheus.Desc{
 		Name: "documents_indexed",
 		Help: "The number of documents indexed.",
 	})
@@ -43,7 +43,7 @@ func main() {
 	////////////////////////////////
 	// A counter with dimensions. //
 	////////////////////////////////
-	searched, _ := prometheus.NewCounterVec(&prometheus.Desc{
+	searched := prometheus.MustNewCounterVec(&prometheus.Desc{
 		Name:           "documents_searched",
 		Help:           "The number of documents indexed.",
 		VariableLabels: []string{"status_code", "version"},
@@ -78,7 +78,7 @@ func main() {
 	///////////////////////////////////
 	// A summary with fancy options. //
 	///////////////////////////////////
-	summary, _ := prometheus.NewSummary(
+	summary := prometheus.MustNewSummary(
 		&prometheus.Desc{
 			Name: "fancy_summary",
 			Help: "A summary to demonstrate the options.",
@@ -113,7 +113,7 @@ func main() {
 	////////////////////
 	// Expose expvar. //
 	////////////////////
-	expvarCollector, _ := prometheus.NewExpvarCollector(map[string]*prometheus.Desc{
+	expvarCollector := prometheus.MustNewExpvarCollector(map[string]*prometheus.Desc{
 		"memstats": &prometheus.Desc{
 			Name:           "expvar_memstats",
 			Help:           "All numeric memstats as one metric family. Not a good role-model, actually... ;-)",
@@ -205,7 +205,7 @@ func (m *MemStatsCollector) DescribeMetrics() []*prometheus.Desc {
 func (m *MemStatsCollector) CollectMetrics() []prometheus.Metric {
 	var ms runtime.MemStats
 	runtime.ReadMemStats(&ms)
-	metrics, _ := prometheus.NewStaticMetrics(
+	metrics := prometheus.MustNewConstMetrics(
 		m.Descs,
 		[]float64{float64(ms.Alloc), float64(ms.TotalAlloc), float64(ms.NumGC)},
 	)
@@ -213,9 +213,9 @@ func (m *MemStatsCollector) CollectMetrics() []prometheus.Metric {
 	// If you don't like the ordering aspect of the above, you could do the
 	// following, where order doesn't matter:
 	// return []Metric{
-	//         NewStaticMetric(desc[0],float64(ms.Alloc)),
-	//         NewStaticMetric(desc[1],float64(ms.TotalAlloc)),
-	//         NewStaticMetric(desc[2],float64(ms.NumGC)),
+	//         NewConstMetric(desc[0],float64(ms.Alloc)),
+	//         NewConstMetric(desc[1],float64(ms.TotalAlloc)),
+	//         NewConstMetric(desc[2],float64(ms.NumGC)),
 	// }
 
 	// To avoid new allocations each scrape, you could also keep metric
@@ -254,8 +254,8 @@ func (c *ClusterManager) CollectMetrics() []prometheus.Metric {
 	// away since the last scrape must not stay around.  If that's too much
 	// of a resource drain, keep the metrics around and reset them
 	// properly.
-	oomCountCounter, _ := prometheus.NewCounterVec(c.OOMCountDesc)
-	ramUsageGauge, _ := prometheus.NewGaugeVec(c.RAMUsageDesc)
+	oomCountCounter := prometheus.MustNewCounterVec(c.OOMCountDesc)
+	ramUsageGauge := prometheus.MustNewGaugeVec(c.RAMUsageDesc)
 	oomCountByHost, ramUsageByHost := c.ReallyExpensiveAssessmentOfTheSystemState()
 	for host, oomCount := range oomCountByHost {
 		oomCountCounter.WithLabelValues(host).Set(float64(oomCount))

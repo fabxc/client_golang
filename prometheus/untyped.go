@@ -34,6 +34,16 @@ func NewUntyped(desc *Desc) (Untyped, error) {
 	return NewValue(desc, 0)
 }
 
+// MustNewUntyped is a version of NewUntyped that panics where NewUntyped would
+// have returned an error.
+func MustNewUntyped(desc *Desc) Untyped {
+	u, err := NewUntyped(desc)
+	if err != nil {
+		panic(err)
+	}
+	return u
+}
+
 type UntypedVec struct {
 	MetricVec
 }
@@ -50,6 +60,16 @@ func NewUntypedVec(desc *Desc) (*UntypedVec, error) {
 			hash:     fnv.New64a(),
 		},
 	}, nil
+}
+
+// MustNewUntypedVec is a version of NewUntypedVec that panics where NewUntypedVec would
+// have returned an error.
+func MustNewUntypedVec(desc *Desc) *UntypedVec {
+	u, err := NewUntypedVec(desc)
+	if err != nil {
+		panic(err)
+	}
+	return u
 }
 
 func (m *UntypedVec) GetMetricWithLabelValues(dims ...string) (Untyped, error) {

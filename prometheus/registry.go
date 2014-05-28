@@ -16,9 +16,10 @@ import (
 	"net/http"
 	"sort"
 	"sync"
-	"code.google.com/p/goprotobuf/proto"
 
 	dto "github.com/prometheus/client_model/go"
+
+	"code.google.com/p/goprotobuf/proto"
 
 	"github.com/prometheus/client_golang/_vendor/goautoneg"
 	"github.com/prometheus/client_golang/text"
@@ -173,11 +174,13 @@ func buildDescsAndCalculateCollectorID(descs []*Desc) (uint64, error) {
 		return 0, errNoDesc
 	}
 	h := fnv.New64a()
+	buf := make([]byte, 8)
 	for _, desc := range descs {
 		if err := desc.build(); err != nil {
 			return 0, err
 		}
-		binary.Write(h, binary.BigEndian, desc.id)
+		binary.BigEndian.PutUint64(buf, desc.id)
+		h.Write(buf)
 	}
 	return h.Sum64(), nil
 }
@@ -198,25 +201,38 @@ var defRegistry = newRegistry()
 // registry.
 var Handler = InstrumentHandler("prometheus", defRegistry)
 
-// MustRegister enrolls a new metrics collector.  It panics if the provided
-// descriptors are problematic or at least one of them shares the same name and
-// preset labels with one that is already registered.  It returns the enrolled
-// metrics collector. Do not register the same MetricsCollector multiple times
-// concurrently.
+// Register enrolls a new metrics collector.  It returns an error if the
+// provided descriptors are problematic or at least one of them shares the same
+// name and preset labels with one that is already registered.  It returns the
+// enrolled metrics collector. Do not register the same MetricsCollector
+// multiple times concurrently.
+func Register(m MetricsCollector) (MetricsCollector, error) {
+	return defRegistry.Register(m)
+}
+
+// MustRegister works like Register but panics where Register would have
+// returned an error.
 func MustRegister(m MetricsCollector) MetricsCollector {
-	m, err := defRegistry.Register(m)
+	m, err := Register(m)
 	if err != nil {
 		panic(err)
 	}
 	return m
 }
 
-// MustRegisterOrGet enrolls a new metrics collector once and only once.  It panics if the
-// provided Desc is invalid.  It returns the enrolled metric or the existing
-// one. Do not register the same MetricsCollector multiple times
-// concurrently.
+// RegisterOrGet enrolls a new metrics collector once and only once. It returns
+// an error if the provided descriptors are problematic or at least one of them
+// shares the same name and preset labels with one that is already registered.
+// It returns the enrolled metric or the existing one. Do not register the same
+// MetricsCollector multiple times concurrently.
+func RegisterOrGet(m MetricsCollector) (MetricsCollector, error) {
+	return defRegistry.RegisterOrGet(m)
+}
+
+// MustRegisterOrGet works like Register but panics where RegisterOrGet would
+// have returned an error.
 func MustRegisterOrGet(m MetricsCollector) MetricsCollector {
-	existing, err := defRegistry.RegisterOrGet(m)
+	existing, err := RegisterOrGet(m)
 	if err != nil {
 		panic(err)
 	}

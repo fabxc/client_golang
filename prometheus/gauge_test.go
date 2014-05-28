@@ -14,7 +14,7 @@ import (
 )
 
 func ExampleGauge() {
-	delOps, _ := NewGauge(&Desc{
+	delOps := MustNewGauge(&Desc{
 		Namespace: "our_company",
 		Subsystem: "blob_storage",
 		Name:      "deletes",
@@ -25,7 +25,7 @@ func ExampleGauge() {
 }
 
 func ExampleGaugeVec() {
-	delOps, _ := NewGaugeVec(&Desc{
+	delOps := MustNewGaugeVec(&Desc{
 		Namespace: "our_company",
 		Subsystem: "blob_storage",
 		Name:      "deletes",
@@ -83,13 +83,10 @@ func TestGaugeConcurrency(t *testing.T) {
 			close(done)
 		}()
 
-		gge, err := NewGauge(&Desc{
+		gge := MustNewGauge(&Desc{
 			Name: "test_gauge",
 			Help: "no help can be found here",
 		})
-		if err != nil {
-			t.Fatal(err)
-		}
 
 		for i := 0; i < concLevel; i++ {
 			vals := make([]float64, 0, mutations)
@@ -144,13 +141,10 @@ func TestGaugeVecConcurrency(t *testing.T) {
 			close(done)
 		}()
 
-		gge, err := NewGauge(&Desc{
+		gge := MustNewGauge(&Desc{
 			Name: "test_gauge",
 			Help: "no help can be found here",
 		})
-		if err != nil {
-			t.Fatal(err)
-		}
 
 		for i := 0; i < concLevel; i++ {
 			vals := make([]float64, 0, mutations)
