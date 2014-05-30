@@ -131,8 +131,7 @@ func newSummary(desc *Desc, opts *SummaryOptions, dims ...string) (Summary, erro
 		lastFlush: time.Now(),
 		invs:      invs,
 	}
-	result.MetricSlice = []Metric{result}
-	result.DescSlice = []*Desc{desc}
+	result.Init(result)
 	return result, nil
 }
 

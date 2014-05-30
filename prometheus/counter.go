@@ -24,13 +24,21 @@ var (
 	errCannotDecreaseCounter = errors.New("counter cannot decrease in value")
 )
 
+// Counter represents a numerical value that only ever goes up.
 type Counter interface {
 	Metric
 	MetricsCollector
 
+	// Set is used to set the counter to an arbitrary value. It is only used
+	// if you have to transfer a value from an external counter into this
+	// Prometheus metrics. Do not use it for regular handling of a
+	// Prometheus counter (as it can be used to break the contract of
+	// monotonically increasing values).
 	Set(float64)
+	// Inc increments the counter by 1.
 	Inc()
-	// Add panics if float64 < 0.
+	// Add adds the given value to the counter. It panics if the value is <
+	// 0.
 	Add(float64)
 }
 
@@ -43,8 +51,7 @@ func NewCounter(desc *Desc) (Counter, error) {
 	}
 	desc.Type = dto.MetricType_COUNTER
 	result := &counter{Value: Value{desc: desc}}
-	result.MetricSlice = []Metric{result}
-	result.DescSlice = []*Desc{desc}
+	result.Init(result)
 	return result, nil
 }
 
@@ -69,10 +76,17 @@ func (c *counter) Add(v float64) {
 	c.Value.Add(v)
 }
 
+// CounterVec is a MetricsCollector that bundles a set of Counters that all
+// share the same Desc, but have different values for their variable
+// lables. This is used if you want to count the same thing partitioned by
+// various dimensions (e.g. number of http request, partitioned by response code
+// and method).
 type CounterVec struct {
 	MetricVec
 }
 
+// NewCounterVec returns a newly allocated CounterVec with the given Desc. It
+// will return an error if Desc does not contain at least one VariableLabel.
 func NewCounterVec(desc *Desc) (*CounterVec, error) {
 	if len(desc.VariableLabels) == 0 {
 		return nil, errNoLabelsForVecMetric
@@ -97,20 +111,40 @@ func MustNewCounterVec(desc *Desc) *CounterVec {
 	return c
 }
 
+// GetMetricWithLabelValues returns the Counter for the given slice of label
+// values (same order as the VariableLabels in Desc). If that combination of
+// label values is accessed for the first time, a new Counter is created.
+// Keeping the Counter pointer for later use is possible (and should be
+// considered if performance is critical), but keep in mind that
+// MetricVec.DeleteLabelValues and MetricVec.DeleteLabels can be used to delete
+// the Counter the pointer is pointing to. In that case, updates of the Counter
+// will never be exported, even if a Counter with the same label values is
+// created later.
 func (m *CounterVec) GetMetricWithLabelValues(dims ...string) (Counter, error) {
 	metric, err := m.MetricVec.GetMetricWithLabelValues(dims...)
 	return metric.(Counter), err
 }
 
+// GetMetricWithLabels returns the Counter for the given label map (the label
+// names must match those of the VariableLabels in Desc). If that label map is
+// accessed for the first time, a new Counter is created. Implications of
+// keeping the Counter pointer are the same as for GetMetricWithLabelValues.
 func (m *CounterVec) GetMetricWithLabels(labels map[string]string) (Counter, error) {
 	metric, err := m.MetricVec.GetMetricWithLabels(labels)
 	return metric.(Counter), err
 }
 
+// WithLabelValues works as GetMetricWithLabelValues, but panics where
+// GetMetricWithLabelValues would have returned an error. That allows shortcuts
+// like
+//     myVec.WithLabelValues("foo", "bar").Add(42)
 func (m *CounterVec) WithLabelValues(dims ...string) Counter {
 	return m.MetricVec.WithLabelValues(dims...).(Counter)
 }
 
+// WithLabels works as GetMetricWithLabels, but panics where GetMetricWithLabels
+// would have returned an error. That allows shortcuts like
+//     myVec.WithLabels(map[string]string{"dings": "foo", "bums": "bar"}).Add(42)
 func (m *CounterVec) WithLabels(labels map[string]string) Counter {
 	return m.MetricVec.WithLabels(labels).(Counter)
 }

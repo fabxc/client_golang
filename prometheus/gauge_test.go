@@ -27,16 +27,18 @@ func ExampleGauge() {
 		Name:      "deletes",
 		Help:      "How many delete operations we have conducted against our blob storage system.",
 	})
+	MustRegister(delOps)
 
 	delOps.Set(900) // That's all, folks!
 }
 
 func ExampleGaugeVec() {
 	delOps := MustNewGaugeVec(&Desc{
-		Namespace: "our_company",
-		Subsystem: "blob_storage",
-		Name:      "deletes",
-		Help:      "How many delete operations we have conducted against our blob storage system, partitioned by data corpus and qos.",
+		Namespace:    "our_company",
+		Subsystem:    "blob_storage",
+		Name:         "deletes",
+		Help:         "How many delete operations we have conducted against our blob storage system, partitioned by data corpus and qos.",
+		PresetLabels: map[string]string{"env": "production"}, // Normally filled from a flag or so.
 		VariableLabels: []string{
 			// What is the body of data being deleted?
 			"corpus",
@@ -44,11 +46,13 @@ func ExampleGaugeVec() {
 			"qos",
 		},
 	})
+	MustRegister(delOps)
 
-	// Oops, we need to delete that embarrassing picture of ourselves.
+	// Set a sample value using compact (but order-sensitive!) WithLabelValues().
 	delOps.WithLabelValues("profile-pictures", "immediate").Set(4)
-	// Those bad cat memes finally get deleted.
-	delOps.WithLabels(map[string]string{"corpus": "cat-memes", "qos": "lazy"}).Set(1)
+	// Set a sample value with a map using WithLabels. More verbose, but
+	// order doesn't matter anymore.
+	delOps.WithLabels(map[string]string{"qos": "lazy", "corpus": "cat-memes"}).Set(1)
 }
 
 func listenGaugeStream(vals, final chan float64, done chan struct{}) {

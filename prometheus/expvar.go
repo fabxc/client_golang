@@ -26,9 +26,9 @@ import (
 // quick way to expose numeric values that are already exported via expvar as
 // Prometheus metrics. Note that the data models of expvar and Prometheus are
 // fundamentally different, and that the ExpvarCollector is inherently
-// slow. Thus, the ExvarCollector is probably great for experiments and
+// slow. Thus, the ExpvarCollector is probably great for experiments and
 // prototying, but you should seriously consider a more direct implementation of
-// Prometheus metrics for monitoring a production systems.
+// Prometheus metrics for monitoring production systems.
 type ExpvarCollector struct {
 	exports map[string]*Desc
 	descs   []*Desc
@@ -60,26 +60,6 @@ type ExpvarCollector struct {
 // etc. until a depth is reached that corresponds to the number of labels. The
 // leaves of that structure must be numbers or bools as above to serve as the
 // sample values.
-//
-// Example:
-//
-// expvar exports the following map:
-// "http-request-count": {"200": {"POST": 11, "GET": 212}, "404": {"POST": 3, "GET": 13}}
-//
-// The following descriptor would be suitable to convert that expvar map into a
-// Prometheus metric:
-// desc := &prometheus.Desc{
-//     Name: "http_request_count",
-//     Help: "Number of HTTP requests.",
-//     Type:  dto.MetricType_COUNTER,
-//     VariableLabels: []string{"code", "method"},
-// }
-//
-// Then call the function like this:
-// expvarColl, err := prometheus.NewExpvarCollector(map[string]*prometheus.Desc{"http-request-count": desc})
-//
-// Finally register the new collector:
-// _, err := prometheus.Register(expvarColl)
 func NewExpvarCollector(exports map[string]*Desc) (*ExpvarCollector, error) {
 	descs := make([]*Desc, 0, len(exports))
 	for _, desc := range exports {
@@ -104,10 +84,12 @@ func MustNewExpvarCollector(exports map[string]*Desc) *ExpvarCollector {
 	return e
 }
 
+// DescribeMetrics implements MetricsCollector.
 func (e *ExpvarCollector) DescribeMetrics() []*Desc {
 	return e.descs
 }
 
+// CollectMetrics implements MetricsCollector.
 func (e *ExpvarCollector) CollectMetrics() []Metric {
 	metrics := make([]Metric, 0, len(e.exports))
 	for name, desc := range e.exports {

@@ -30,28 +30,38 @@ type MetricsCollector interface {
 	DescribeMetrics() []*Desc
 	// CollectMetrics is called by Prometheus when collecting metrics. The
 	// descriptor of each returned metric is one of those returned by
-	// DescribeMetrics. Each returned metric differs from each other eithen
-	// in its descriptor or in its variable label values. The returned
-	// metrics are sorted consistently. This method may be called
-	// concurrently and must therefore be implemented in a concurrency safe
-	// way. Blocking occurs at the expense of total performance of rendering
-	// all registered metrics.  Ideally MetricsCollector implementations
-	// should support concurrent readers.
+	// DescribeMetrics. Returned metrics that share the same descriptor must
+	// differ in their variable label values. The returned metrics are
+	// sorted consistently. This method may be called concurrently and must
+	// therefore be implemented in a concurrency safe way. Blocking occurs
+	// at the expense of total performance of rendering all registered
+	// metrics.  Ideally MetricsCollector implementations should support
+	// concurrent readers.
 	CollectMetrics() []Metric
 }
 
 // SelfCollector implements MetricsCollector for a single metric so that that
 // metric collects itself. Add it as an anonymous field to a struct that
-// implements Metric, and set MetricSlice and DescSlice appropriately.
+// implements Metric, and call Init with the metric itself as an argument.
 type SelfCollector struct {
-	MetricSlice []Metric
-	DescSlice   []*Desc
+	metrics []Metric
+	descs   []*Desc
 }
 
+// Init provides the SelfCollector with a reference to the metric it is supposed
+// to collect. It is usually called within the factory function to create a
+// metric. See example.
+func (c *SelfCollector) Init(self Metric) {
+	c.metrics = []Metric{self}
+	c.descs = []*Desc{self.Desc()}
+}
+
+// DescribeMetrics implements MetricsCollector.
 func (c *SelfCollector) DescribeMetrics() []*Desc {
-	return c.DescSlice
+	return c.descs
 }
 
+// CollectMetrics implements MetricsCollector.
 func (c *SelfCollector) CollectMetrics() []Metric {
-	return c.MetricSlice
+	return c.metrics
 }

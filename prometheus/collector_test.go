@@ -11,16 +11,37 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package prometheus provides embeddable metric primitives for servers and
-// standardized exposition of telemetry through a web services interface.
-//
-// All exported functions and methods are safe to be used concurrently unless
-// specified otherwise.
-//
-// To expose metrics registered with the default registry, you have to register
-// prometheus.Handler with your http server. The usual endpoint is "/metrics".
-//
-//     http.Handle("/metrics", prometheus.Handler)
-//
-// See the various examples for more details.
 package prometheus
+
+import (
+	dto "github.com/prometheus/client_model/go"
+)
+
+func NewFancyMetric(desc *Desc) *FancyMetric {
+	result := &FancyMetric{desc: desc}
+	result.Init(result)
+	return result
+}
+
+type FancyMetric struct {
+	SelfCollector
+
+	desc *Desc
+	// Some more fancy fields to be inserted here.
+}
+
+func (fm *FancyMetric) Desc() *Desc {
+	return fm.desc
+}
+
+func (fm *FancyMetric) Write(*dto.Metric) {
+	// Imagine a truly fancy implementation.
+}
+
+func ExampleSelfCollector() {
+	fancyMetric := NewFancyMetric(&Desc{
+		Name: "fancy_metric",
+		Help: "A hell of a fancy metric.",
+	})
+	MustRegister(fancyMetric)
+}

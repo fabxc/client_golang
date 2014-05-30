@@ -14,7 +14,6 @@
 package main
 
 import (
-	"expvar"
 	"log"
 	"net/http"
 	"runtime"
@@ -26,67 +25,6 @@ import (
 )
 
 func main() {
-	///////////////////////
-	// A simple counter. //
-	///////////////////////
-	indexed := prometheus.MustNewCounter(&prometheus.Desc{
-		Name: "documents_indexed",
-		Help: "The number of documents indexed.",
-	})
-	prometheus.MustRegister(indexed)
-
-	indexed.Set(42)
-	indexed.Inc()
-	indexed.Add(100)
-
-	// For reference, this is how it looks like with the original proposal
-	// (OP):
-	// indexed := prometheus.NewCounter(prometheus.CounterDesc{
-	//         Desc: prometheus.Desc{
-	//                 Name: "documents_indexed",
-	//                 Help: "The number of documents indexed.",
-	//         },
-	// })
-	// prometheus.MustRegister(indexed)
-	//
-	// indexed.Set(42)
-	// indexed.Dec()
-	// indexed.Add(100)
-
-	////////////////////////////////
-	// A counter with dimensions. //
-	////////////////////////////////
-	searched := prometheus.MustNewCounterVec(&prometheus.Desc{
-		Name:           "documents_searched",
-		Help:           "The number of documents indexed.",
-		VariableLabels: []string{"status_code", "version"},
-	})
-	prometheus.MustRegister(searched)
-
-	// "Quick&easy" way: Pass in label values in order:
-	searched.WithLabelValues("200", "prod").Set(2001)
-	// "Safer" way (but more effort): Pass in labels as a map.
-	searched.WithLabels(map[string]string{"status_code": "404", "version": "test"}).Set(4)
-	// Alternative "safe" proposal: name->value pairs (less safe than the map above):
-	// searched.WithLabels("status_code", "404", "version", "test").Set(4)
-
-	// For even faster repeated access, a reference to the metric object can be kept.
-	m := searched.WithLabelValues("200", "prod")
-	m.Inc()
-
-	// Same with the OP:
-	// searched := prometheus.NewCounterVec(prometheus.CounterVecDesc{
-	//         Desc: prometheus.Desc{
-	//                 Name:           "documents_searched",
-	//                 Help:           "The number of documents indexed.",
-	//         },
-	//         Labels: []string{"status_code", "version"},
-	// })
-	// prometheus.MustRegister(searched)
-	//
-	// searched.Set(2001, "200", "prod")
-	// searched.Set(4, "404", "test")
-	// searched.Inc("200", "prod")
 
 	///////////////////////////////////
 	// A summary with fancy options. //
@@ -122,51 +60,6 @@ func main() {
 	//         FlushInter: 5 * time.Minute,
 	// })
 	// prometheus.MustRegister(summary)
-
-	////////////////////
-	// Expose expvar. //
-	////////////////////
-	expvarCollector := prometheus.MustNewExpvarCollector(map[string]*prometheus.Desc{
-		"memstats": &prometheus.Desc{
-			Name:           "expvar_memstats",
-			Help:           "All numeric memstats as one metric family. Not a good role-model, actually... ;-)",
-			Type:           dto.MetricType_UNTYPED, // To not imply this mash-up has any meaning...
-			VariableLabels: []string{"type"},
-		},
-		"lone_int": &prometheus.Desc{
-			Name: "expvar_lone_int",
-			Help: "Just an expvar int as an example.",
-			Type: dto.MetricType_GAUGE,
-		},
-		"complex_map": &prometheus.Desc{
-			Name:           "expvar_complex_map",
-			Help:           "A silly map to demonstrate depth two...",
-			Type:           dto.MetricType_COUNTER,
-			VariableLabels: []string{"en", "de"},
-		},
-	})
-	prometheus.MustRegister(expvarCollector)
-
-	// The Prometheus part is done here. But to show that this example is
-	// doing anything, we have to manually export something via expvar.
-	expvar.NewInt("lone_int").Set(42)
-	expvarMap := expvar.NewMap("complex_map")
-	var (
-		expvarMap1, expvarMap2                             expvar.Map
-		expvarInt11, expvarInt12, expvarInt21, expvarInt22 expvar.Int
-	)
-	expvarMap1.Init()
-	expvarMap2.Init()
-	expvarInt11.Set(11)
-	expvarInt12.Set(12)
-	expvarInt21.Set(21)
-	expvarInt22.Set(22)
-	expvarMap1.Set("dings", &expvarInt11)
-	expvarMap1.Set("bums", &expvarInt12)
-	expvarMap2.Set("dings", &expvarInt21)
-	expvarMap2.Set("bums", &expvarInt22)
-	expvarMap.Set("foo", &expvarMap1)
-	expvarMap.Set("bar", &expvarMap2)
 
 	//////////////////////
 	// Expose memstats. //

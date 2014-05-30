@@ -54,8 +54,7 @@ func NewValue(desc *Desc, val float64, dims ...string) (*Value, error) {
 		return nil, errInconsistentCardinality
 	}
 	result := &Value{desc: desc, dims: dims, val: val}
-	result.MetricSlice = []Metric{result}
-	result.DescSlice = []*Desc{desc}
+	result.Init(result)
 	return result, nil
 }
 
