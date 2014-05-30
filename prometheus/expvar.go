@@ -57,16 +57,22 @@ type ExpvarCollector struct {
 // Example:
 //
 // expvar exports the following map:
-// "http_request_count": {"200": {"POST": 11, "GET": 212}, "404": {"POST": 3, "GET": 13}}
+// "http-request-count": {"200": {"POST": 11, "GET": 212}, "404": {"POST": 3, "GET": 13}}
 //
 // The following descriptor would be suitable to convert that expvar map into a
 // Prometheus metric:
-// prometheus.Desc{
+// desc := &prometheus.Desc{
 //     Name: "http_request_count",
 //     Help: "Number of HTTP requests.",
 //     Type:  dto.MetricType_COUNTER,
-//     VariableLabels: []string{"status_code", "method"},
+//     VariableLabels: []string{"code", "method"},
 // }
+//
+// Then call the function like this:
+// expvarColl, err := prometheus.NewExpvarCollector(map[string]*prometheus.Desc{"http-request-count": desc})
+//
+// Finally register the new collector:
+// _, err := prometheus.Register(expvarColl)
 func NewExpvarCollector(exports map[string]*Desc) (*ExpvarCollector, error) {
 	descs := make([]*Desc, 0, len(exports))
 	for _, desc := range exports {
