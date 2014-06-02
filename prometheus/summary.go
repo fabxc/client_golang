@@ -328,6 +328,6 @@ func (m *SummaryVec) WithLabelValues(lvs ...string) Summary {
 	return m.MetricVec.WithLabelValues(lvs...).(Summary)
 }
 
-func (m *SummaryVec) WithLabels(labels map[string]string) Summary {
-	return m.MetricVec.WithLabels(labels).(Summary)
+func (m *SummaryVec) With(labels Labels) Summary {
+	return m.MetricVec.With(labels).(Summary)
 }

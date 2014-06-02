@@ -179,14 +179,14 @@ func NewClusterManager(zone string) *ClusterManager {
 			Subsystem:      "clustermanager",
 			Name:           "oom_count",
 			Help:           "number of OOM crashes",
-			ConstLabels:   map[string]string{"zone": zone},
+			ConstLabels:    prometheus.Labels{"zone": zone},
 			VariableLabels: []string{"host"},
 		},
 		RAMUsageDesc: &prometheus.Desc{
 			Subsystem:      "clustermanager",
 			Name:           "ram_usage",
 			Help:           "RAM usage in MiB as reported to the cluster manager",
-			ConstLabels:   map[string]string{"zone": zone},
+			ConstLabels:    prometheus.Labels{"zone": zone},
 			VariableLabels: []string{"host"},
 		},
 	}

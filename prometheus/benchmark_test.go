@@ -39,7 +39,7 @@ func BenchmarkPrometheusCounterWithMappedLabels(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		m.WithLabels(map[string]string{"two": "zwei", "one": "eins", "three": "drei"}).Inc()
+		m.With(Labels{"two": "zwei", "one": "eins", "three": "drei"}).Inc()
 	}
 }
 
@@ -51,9 +51,9 @@ func BenchmarkPrometheusCounterWithPreparedMappedLabels(b *testing.B) {
 	})
 	b.ReportAllocs()
 	b.ResetTimer()
-	lm := map[string]string{"two": "zwei", "one": "eins", "three": "drei"}
+	labels := Labels{"two": "zwei", "one": "eins", "three": "drei"}
 	for i := 0; i < b.N; i++ {
-		m.WithLabels(lm).Inc()
+		m.With(labels).Inc()
 	}
 }
 

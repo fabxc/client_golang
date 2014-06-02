@@ -26,6 +26,9 @@ import (
 	dto "github.com/prometheus/client_model/go"
 )
 
+// Labels represents a collection of label name -> value mappings.
+type Labels map[string]string
+
 // Metric models any sort of telemetric data you wish to export to Prometheus.
 type Metric interface {
 	// Desc returns the descriptor for the Metric. This method idempotently
@@ -78,7 +81,7 @@ type Desc struct {
 	Help string
 
 	// ConstLabels are labels with a fixed value.
-	ConstLabels map[string]string
+	ConstLabels Labels
 	// VariableLabels contains names of labels for which the metric
 	// maintains variable values.
 	VariableLabels []string

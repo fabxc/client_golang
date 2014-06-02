@@ -44,7 +44,7 @@ func ExampleCounterVec() {
 	httpReqs := MustNewCounterVec(&Desc{
 		Name:           "http_requests",
 		Help:           "How many http requests processed, partitioned by status code and http method.",
-		ConstLabels:   map[string]string{"env": "production"}, // Normally filled from a flag or so.
+		ConstLabels:    Labels{"env": "production"}, // Normally filled from a flag or so.
 		VariableLabels: []string{"code", "method"},
 	})
 	MustRegister(httpReqs)

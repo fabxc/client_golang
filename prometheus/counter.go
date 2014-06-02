@@ -125,12 +125,12 @@ func (m *CounterVec) GetMetricWithLabelValues(lvs ...string) (Counter, error) {
 	return metric.(Counter), err
 }
 
-// GetMetricWithLabels returns the Counter for the given label map (the label
-// names must match those of the VariableLabels in Desc). If that label map is
+// GetMetricWith returns the Counter for the given label map (the label names
+// must match those of the VariableLabels in Desc). If that label map is
 // accessed for the first time, a new Counter is created. Implications of
 // keeping the Counter pointer are the same as for GetMetricWithLabelValues.
-func (m *CounterVec) GetMetricWithLabels(labels map[string]string) (Counter, error) {
-	metric, err := m.MetricVec.GetMetricWithLabels(labels)
+func (m *CounterVec) GetMetricWith(labels Labels) (Counter, error) {
+	metric, err := m.MetricVec.GetMetricWith(labels)
 	return metric.(Counter), err
 }
 
@@ -142,9 +142,9 @@ func (m *CounterVec) WithLabelValues(lvs ...string) Counter {
 	return m.MetricVec.WithLabelValues(lvs...).(Counter)
 }
 
-// WithLabels works as GetMetricWithLabels, but panics where GetMetricWithLabels
-// would have returned an error. That allows shortcuts like
-//     myVec.WithLabels(map[string]string{"dings": "foo", "bums": "bar"}).Add(42)
-func (m *CounterVec) WithLabels(labels map[string]string) Counter {
-	return m.MetricVec.WithLabels(labels).(Counter)
+// With works as GetMetricWithLabels, but panics where GetMetricWithLabels would
+// have returned an error. That allows shortcuts like
+//     myVec.With(Labels{"dings": "foo", "bums": "bar"}).Add(42)
+func (m *CounterVec) With(labels Labels) Counter {
+	return m.MetricVec.With(labels).(Counter)
 }

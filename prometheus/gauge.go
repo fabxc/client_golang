@@ -84,8 +84,8 @@ func (m *GaugeVec) GetMetricWithLabelValues(lvs ...string) (Gauge, error) {
 	return metric.(Gauge), err
 }
 
-func (m *GaugeVec) GetMetricWithLabels(labels map[string]string) (Gauge, error) {
-	metric, err := m.MetricVec.GetMetricWithLabels(labels)
+func (m *GaugeVec) GetMetricWith(labels Labels) (Gauge, error) {
+	metric, err := m.MetricVec.GetMetricWith(labels)
 	return metric.(Gauge), err
 }
 
@@ -93,6 +93,6 @@ func (m *GaugeVec) WithLabelValues(lvs ...string) Gauge {
 	return m.MetricVec.WithLabelValues(lvs...).(Gauge)
 }
 
-func (m *GaugeVec) WithLabels(labels map[string]string) Gauge {
-	return m.MetricVec.WithLabels(labels).(Gauge)
+func (m *GaugeVec) With(labels Labels) Gauge {
+	return m.MetricVec.With(labels).(Gauge)
 }

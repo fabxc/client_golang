@@ -74,11 +74,11 @@ func (m *MetricVec) GetMetricWithLabelValues(lvs ...string) (Metric, error) {
 	return m.getOrCreateMetric(h, lvs...), nil
 }
 
-// GetMetricWithLabels returns the metric where the variable labels are the same
-// as those passed in as labels. If the labels map has too many or too few
-// entries, or if a name of a variable label cannot be found in the labels map,
-// an error is returned.
-func (m *MetricVec) GetMetricWithLabels(labels map[string]string) (Metric, error) {
+// GetMetricWith returns the metric where the variable labels are the same as
+// those passed in as labels. If the labels map has too many or too few entries,
+// or if a name of a variable label cannot be found in the labels map, an error
+// is returned.
+func (m *MetricVec) GetMetricWith(labels Labels) (Metric, error) {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
 
@@ -95,7 +95,7 @@ func (m *MetricVec) GetMetricWithLabels(labels map[string]string) (Metric, error
 
 // WithLabelValues works as GetMetricWithLabelValues, but panics if an error
 // occurs. The method allows neat syntax like:
-//   httpReqs.WithLabelValues("404", "POST").Inc()
+//     httpReqs.WithLabelValues("404", "POST").Inc()
 func (m *MetricVec) WithLabelValues(lvs ...string) Metric {
 	metric, err := m.GetMetricWithLabelValues(lvs...)
 	if err != nil {
@@ -104,11 +104,11 @@ func (m *MetricVec) WithLabelValues(lvs ...string) Metric {
 	return metric
 }
 
-// WithLabels works as GetMetricWithLabels, but panics if an error occurs. The
-// method allows neat syntax like:
-//   httpReqs.WithLabels(map[string]string{"status":"404", "method":"POST"}).Inc()
-func (m *MetricVec) WithLabels(labels map[string]string) Metric {
-	metric, err := m.GetMetricWithLabels(labels)
+// With works as GetMetricWith, but panics if an error occurs. The method allows
+// neat syntax like:
+//     httpReqs.With(Labels{"status":"404", "method":"POST"}).Inc()
+func (m *MetricVec) With(labels Labels) Metric {
+	metric, err := m.GetMetricWith(labels)
 	if err != nil {
 		panic(err)
 	}
@@ -116,7 +116,7 @@ func (m *MetricVec) WithLabels(labels map[string]string) Metric {
 }
 
 // DeleteLabelValues removes the metric where the variable labels are the same
-// as those passed in as labels. It returns true, if a metric was deleted.
+// as those passed in as labels. It returns true if a metric was deleted.
 func (m *MetricVec) DeleteLabelValues(lvs ...string) bool {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
@@ -132,9 +132,9 @@ func (m *MetricVec) DeleteLabelValues(lvs ...string) bool {
 	return true
 }
 
-// DeleteLabels deletes the metric where the variable labels are the same
-// as those passed in as labels. It returns true, if a metric was deleted.
-func (m *MetricVec) DeleteLabels(labels map[string]string) bool {
+// Delete deletes the metric where the variable labels are the same as those
+// passed in as labels. It returns true if a metric was deleted.
+func (m *MetricVec) Delete(labels Labels) bool {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
 
@@ -162,7 +162,7 @@ func (m *MetricVec) hashLabelValues(vals []string) (uint64, error) {
 	return m.hash.Sum64(), nil
 }
 
-func (m *MetricVec) hashLabels(labels map[string]string) (uint64, error) {
+func (m *MetricVec) hashLabels(labels Labels) (uint64, error) {
 	if len(labels) != len(m.desc.VariableLabels) {
 		return 0, errInconsistentCardinality
 	}

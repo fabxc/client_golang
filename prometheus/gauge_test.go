@@ -34,11 +34,11 @@ func ExampleGauge() {
 
 func ExampleGaugeVec() {
 	delOps := MustNewGaugeVec(&Desc{
-		Namespace:    "our_company",
-		Subsystem:    "blob_storage",
-		Name:         "deletes",
-		Help:         "How many delete operations we have conducted against our blob storage system, partitioned by data corpus and qos.",
-		ConstLabels: map[string]string{"env": "production"}, // Normally filled from a flag or so.
+		Namespace:   "our_company",
+		Subsystem:   "blob_storage",
+		Name:        "deletes",
+		Help:        "How many delete operations we have conducted against our blob storage system, partitioned by data corpus and qos.",
+		ConstLabels: Labels{"env": "production"}, // Normally filled from a flag or so.
 		VariableLabels: []string{
 			// What is the body of data being deleted?
 			"corpus",
@@ -52,7 +52,7 @@ func ExampleGaugeVec() {
 	delOps.WithLabelValues("profile-pictures", "immediate").Set(4)
 	// Set a sample value with a map using WithLabels. More verbose, but
 	// order doesn't matter anymore.
-	delOps.WithLabels(map[string]string{"qos": "lazy", "corpus": "cat-memes"}).Set(1)
+	delOps.With(Labels{"qos": "lazy", "corpus": "cat-memes"}).Set(1)
 }
 
 func listenGaugeStream(vals, final chan float64, done chan struct{}) {

@@ -69,8 +69,8 @@ func NewUntypedVec(desc *Desc) (*UntypedVec, error) {
 	}, nil
 }
 
-// MustNewUntypedVec is a version of NewUntypedVec that panics where NewUntypedVec would
-// have returned an error.
+// MustNewUntypedVec is a version of NewUntypedVec that panics where
+// NewUntypedVec would have returned an error.
 func MustNewUntypedVec(desc *Desc) *UntypedVec {
 	u, err := NewUntypedVec(desc)
 	if err != nil {
@@ -84,8 +84,8 @@ func (m *UntypedVec) GetMetricWithLabelValues(lvs ...string) (Untyped, error) {
 	return metric.(Untyped), err
 }
 
-func (m *UntypedVec) GetMetricWithLabels(labels map[string]string) (Untyped, error) {
-	metric, err := m.MetricVec.GetMetricWithLabels(labels)
+func (m *UntypedVec) GetMetricWith(labels Labels) (Untyped, error) {
+	metric, err := m.MetricVec.GetMetricWith(labels)
 	return metric.(Untyped), err
 }
 
@@ -93,6 +93,6 @@ func (m *UntypedVec) WithLabelValues(lvs ...string) Untyped {
 	return m.MetricVec.WithLabelValues(lvs...).(Untyped)
 }
 
-func (m *UntypedVec) WithLabels(labels map[string]string) Untyped {
-	return m.MetricVec.WithLabels(labels).(Untyped)
+func (m *UntypedVec) With(labels Labels) Untyped {
+	return m.MetricVec.With(labels).(Untyped)
 }
