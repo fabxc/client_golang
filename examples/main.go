@@ -108,22 +108,12 @@ func (m *MemStatsCollector) Describe() []*prometheus.Desc {
 	return m.Descs
 }
 
-func (m *MemStatsCollector) Collect() []prometheus.Metric {
+func (m *MemStatsCollector) Collect(ch chan<- prometheus.Metric) {
 	var ms runtime.MemStats
 	runtime.ReadMemStats(&ms)
-	metrics := prometheus.MustNewConstMetrics(
-		m.Descs,
-		[]float64{float64(ms.Alloc), float64(ms.TotalAlloc), float64(ms.NumGC)},
-	)
-	return metrics
-	// If you don't like the ordering aspect of the above, you could do the
-	// following, where order doesn't matter:
-	// return []Metric{
-	//         NewConstMetric(desc[0],float64(ms.Alloc)),
-	//         NewConstMetric(desc[1],float64(ms.TotalAlloc)),
-	//         NewConstMetric(desc[2],float64(ms.NumGC)),
-	// }
-
+	ch <- prometheus.MustNewConstMetric(m.Descs[0], float64(ms.Alloc))
+	ch <- prometheus.MustNewConstMetric(m.Descs[1], float64(ms.TotalAlloc))
+	ch <- prometheus.MustNewConstMetric(m.Descs[2], float64(ms.NumGC))
 	// To avoid new allocations each scrape, you could also keep metric
 	// objects around and return the same objects each time, just with new
 	// values set.
@@ -155,7 +145,7 @@ func (c *ClusterManager) Describe() []*prometheus.Desc {
 	return []*prometheus.Desc{c.OOMCountDesc, c.RAMUsageDesc}
 }
 
-func (c *ClusterManager) Collect() []prometheus.Metric {
+func (c *ClusterManager) Collect(ch chan<- prometheus.Metric) {
 	// Create metrics from scratch each time because hosts that have gone
 	// away since the last scrape must not stay around.  If that's too much
 	// of a resource drain, keep the metrics around and reset them
@@ -169,7 +159,8 @@ func (c *ClusterManager) Collect() []prometheus.Metric {
 	for host, ramUsage := range ramUsageByHost {
 		ramUsageGauge.WithLabelValues(host).Set(ramUsage)
 	}
-	return append(oomCountCounter.Collect(), ramUsageGauge.Collect()...)
+	oomCountCounter.Collect(ch)
+	ramUsageGauge.Collect(ch)
 }
 
 func NewClusterManager(zone string) *ClusterManager {

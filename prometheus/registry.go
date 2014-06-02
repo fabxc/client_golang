@@ -41,7 +41,12 @@ import (
 var errAlreadyReg = errors.New("duplicate metrics collector registration attempted")
 
 const (
-	numBufs = 4
+	// Constants for object pools.
+	numBufs           = 4
+	numMetricFamilies = 1000
+	numMetrics        = 10000
+
+	capMetricChan = 1000
 
 	contentTypeHeader = "Content-Type"
 
@@ -76,15 +81,17 @@ type registry struct {
 	collectorsByID            map[uint64]Collector // ID is a hash of the descIDs.
 	descIDs                   map[uint64]struct{}
 	dimHashesByName           map[string]uint64
-	bufs                      chan *bytes.Buffer
+	bufPool                   chan *bytes.Buffer
+	metricFamilyPool          chan *dto.MetricFamily
+	metricPool                chan *dto.Metric
 	metricFamilyInjectionHook func() []*dto.MetricFamily
 }
 
-func (r *registry) Register(m Collector) (Collector, error) {
-	descs := m.Describe()
+func (r *registry) Register(c Collector) (Collector, error) {
+	descs := c.Describe()
 	collectorID, err := buildDescsAndCalculateCollectorID(descs)
 	if err != nil {
-		return m, err
+		return c, err
 	}
 
 	r.mtx.Lock()
@@ -121,14 +128,14 @@ func (r *registry) Register(m Collector) (Collector, error) {
 		}
 	}
 	// Only after all tests have passed, actually register.
-	r.collectorsByID[collectorID] = m
+	r.collectorsByID[collectorID] = c
 	for hash := range newDescIDs {
 		r.descIDs[hash] = struct{}{}
 	}
 	for name, dimHash := range newDimHashesByName {
 		r.dimHashesByName[name] = dimHash
 	}
-	return m, nil
+	return c, nil
 }
 
 func (r *registry) RegisterOrGet(m Collector) (Collector, error) {
@@ -167,7 +174,7 @@ func (r *registry) Unregister(m Collector) (bool, error) {
 
 func (r *registry) getBuf() *bytes.Buffer {
 	select {
-	case buf := <-r.bufs:
+	case buf := <-r.bufPool:
 		return buf
 	default:
 		return &bytes.Buffer{}
@@ -175,9 +182,43 @@ func (r *registry) getBuf() *bytes.Buffer {
 }
 
 func (r *registry) giveBuf(buf *bytes.Buffer) {
+	buf.Reset()
 	select {
-	case r.bufs <- buf:
-		buf.Reset()
+	case r.bufPool <- buf:
+	default:
+	}
+}
+
+func (r *registry) getMetricFamily() *dto.MetricFamily {
+	select {
+	case mf := <-r.metricFamilyPool:
+		return mf
+	default:
+		return &dto.MetricFamily{}
+	}
+}
+
+func (r *registry) giveMetricFamily(mf *dto.MetricFamily) {
+	mf.Reset()
+	select {
+	case r.metricFamilyPool <- mf:
+	default:
+	}
+}
+
+func (r *registry) getMetric() *dto.Metric {
+	select {
+	case m := <-r.metricPool:
+		return m
+	default:
+		return &dto.Metric{}
+	}
+}
+
+func (r *registry) giveMetric(m *dto.Metric) {
+	m.Reset()
+	select {
+	case r.metricPool <- m:
 	default:
 	}
 }
@@ -201,10 +242,12 @@ func buildDescsAndCalculateCollectorID(descs []*Desc) (uint64, error) {
 // TODO: Consider a way to give access to non-default registries.
 func newRegistry() *registry {
 	return &registry{
-		collectorsByID:  map[uint64]Collector{},
-		descIDs:         map[uint64]struct{}{},
-		dimHashesByName: map[string]uint64{},
-		bufs:            make(chan *bytes.Buffer, numBufs),
+		collectorsByID:   map[uint64]Collector{},
+		descIDs:          map[uint64]struct{}{},
+		dimHashesByName:  map[string]uint64{},
+		bufPool:          make(chan *bytes.Buffer, numBufs),
+		metricFamilyPool: make(chan *dto.MetricFamily, numMetricFamilies),
+		metricPool:       make(chan *dto.Metric, numMetrics),
 	}
 }
 
@@ -310,46 +353,44 @@ func (r *registry) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 }
 
 func (r *registry) writePB(w io.Writer, writeEncoded encoder) (int, error) {
-	// - Write resulting merged MetricFamilies with encoder (sorted by name).
-
 	metricFamiliesByName := make(map[string]*dto.MetricFamily, len(r.dimHashesByName))
-	collectorIDs := make([]uint64, 0, len(r.collectorsByID))
-	collectors := make([]Collector, 0, len(r.collectorsByID))
 
+	metricChan := make(chan Metric, capMetricChan)
+	wg := sync.WaitGroup{}
+
+	// Scatter.
 	r.mtx.RLock()
-	// For reproducible order, sort Collectors by their ID.
-	for collectorID := range r.collectorsByID {
-		collectorIDs = append(collectorIDs, collectorID)
+	wg.Add(len(r.collectorsByID))
+	go func() {
+		wg.Wait()
+		close(metricChan)
+	}()
+	for _, collector := range r.collectorsByID {
+		go func(collector Collector) {
+			defer wg.Done()
+			collector.Collect(metricChan)
+		}(collector)
 	}
-	sort.Sort(hashSorter(collectorIDs))
-	for _, collectorID := range collectorIDs {
-		collectors = append(collectors, r.collectorsByID[collectorID])
-	}
-	defer r.mtx.RUnlock()
+	r.mtx.RUnlock()
 
-	for _, collector := range collectors {
-		// TODO: Vet concurrent collection of metrics.
-		for _, metric := range collector.Collect() {
-			desc := metric.Desc()
-			// TODO: Configurable check if desc is an element of collector.Describe().
-			metricFamily, ok := metricFamiliesByName[desc.canonName]
-			if !ok {
-				// TODO: Vet getting MetricFamily object from pool.
-				// (Perhaps wait for Go 1.3 pools for that.)
-				metricFamily = &dto.MetricFamily{
-					Name: proto.String(desc.canonName),
-					Help: proto.String(desc.Help),
-					Type: desc.Type.Enum(),
-				}
-				metricFamiliesByName[desc.canonName] = metricFamily
-			}
-			// TODO: Vet getting Metric object from pool.
-			// (Perhaps wait for Go 1.3 pools for that.)
-			dtoMetric := &dto.Metric{}
-			metric.Write(dtoMetric)
-			// TODO: Configurable check if dtoMetric is consistent with desc.
-			metricFamily.Metric = append(metricFamily.Metric, dtoMetric)
+	// Gather.
+	for metric := range metricChan {
+		desc := metric.Desc()
+		// TODO: Configurable check if desc is an element of collector.Describe().
+		metricFamily, ok := metricFamiliesByName[desc.canonName]
+		if !ok {
+			metricFamily = r.getMetricFamily()
+			defer r.giveMetricFamily(metricFamily)
+			metricFamily.Name = proto.String(desc.canonName)
+			metricFamily.Help = proto.String(desc.Help)
+			metricFamily.Type = desc.Type.Enum()
+			metricFamiliesByName[desc.canonName] = metricFamily
 		}
+		dtoMetric := r.getMetric()
+		defer r.giveMetric(dtoMetric)
+		metric.Write(dtoMetric)
+		// TODO: Configurable check if dtoMetric is consistent with desc.
+		metricFamily.Metric = append(metricFamily.Metric, dtoMetric)
 	}
 
 	// Now that MetricFamilies are all set, sort their Metrics

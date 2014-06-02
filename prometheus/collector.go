@@ -29,29 +29,31 @@ type Collector interface {
 	// descriptors throughout the lifetime of the Metric.
 	Describe() []*Desc
 	// Collect is called by Prometheus when collecting metrics. The
-	// descriptor of each returned metric is one of those returned by
-	// Describe. Returned metrics that share the same descriptor must differ
-	// in their variable label values. This method may be called
-	// concurrently and must therefore be implemented in a concurrency safe
-	// way. Blocking occurs at the expense of total performance of rendering
-	// all registered metrics.  Ideally Collector implementations should
-	// support concurrent readers.
-	Collect() []Metric
+	// implementation sends each collected metric via the provided channel
+	// and returns once the last metric has been sent. The descriptor of
+	// each sent metric is one of those returned by Describe. Returned
+	// metrics that share the same descriptor must differ in their variable
+	// label values. This method may be called concurrently and must
+	// therefore be implemented in a concurrency safe way. Blocking occurs
+	// at the expense of total performance of rendering all registered
+	// metrics.  Ideally Collector implementations should support concurrent
+	// readers.
+	Collect(chan<- Metric)
 }
 
 // SelfCollector implements Collector for a single metric so that that
 // metric collects itself. Add it as an anonymous field to a struct that
 // implements Metric, and call Init with the metric itself as an argument.
 type SelfCollector struct {
-	metrics []Metric
-	descs   []*Desc
+	self  Metric
+	descs []*Desc
 }
 
 // Init provides the SelfCollector with a reference to the metric it is supposed
 // to collect. It is usually called within the factory function to create a
 // metric. See example.
 func (c *SelfCollector) Init(self Metric) {
-	c.metrics = []Metric{self}
+	c.self = self
 	c.descs = []*Desc{self.Desc()}
 }
 
@@ -61,6 +63,6 @@ func (c *SelfCollector) Describe() []*Desc {
 }
 
 // Collect implements Collector.
-func (c *SelfCollector) Collect() []Metric {
-	return c.metrics
+func (c *SelfCollector) Collect(ch chan<- Metric) {
+	ch <- c.self
 }

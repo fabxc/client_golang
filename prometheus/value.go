@@ -162,31 +162,6 @@ func MustNewConstMetric(desc *Desc, val float64, labelValues ...string) Metric {
 	return m
 }
 
-func NewConstMetrics(descs []*Desc, vals []float64) ([]Metric, error) {
-	if len(descs) != len(vals) {
-		return nil, errInconsistentLengthDescriptorsValues
-	}
-	metrics := make([]Metric, 0, len(descs))
-	for i, desc := range descs {
-		cm, err := NewConstMetric(desc, vals[i])
-		if err != nil {
-			return nil, err
-		}
-		metrics = append(metrics, cm)
-	}
-	return metrics, nil
-}
-
-// MustNewConstMetrics is a version of NewConstMetrics that panics where
-// NewConstMetrics would have returned an error.
-func MustNewConstMetrics(descs []*Desc, vals []float64) []Metric {
-	m, err := NewConstMetrics(descs, vals)
-	if err != nil {
-		panic(err)
-	}
-	return m
-}
-
 type constMetric struct {
 	val         float64
 	desc        *Desc

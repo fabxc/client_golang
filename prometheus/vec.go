@@ -47,17 +47,14 @@ func (m *MetricVec) Describe() []*Desc {
 	return []*Desc{m.desc}
 }
 
-// Collect implements Collector. It returns the metrics in hash
-// order.
-func (m *MetricVec) Collect() []Metric {
+// Collect implements Collector.
+func (m *MetricVec) Collect(ch chan<- Metric) {
 	m.mtx.RLock()
 	defer m.mtx.RUnlock()
 
-	metrics := make([]Metric, 0, len(m.children))
 	for _, metric := range m.children {
-		metrics = append(metrics, metric)
+		ch <- metric
 	}
-	return metrics
 }
 
 // GetMetricWithLabelValues returns the metric where the variable lables have

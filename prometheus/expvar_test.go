@@ -73,7 +73,12 @@ func ExampleExpvarCollector() {
 	// Let's see what the scrape would yield, but exclude the memstats metrics.
 	metricStrings := []string{}
 	metric := dto.Metric{}
-	for _, m := range expvarCollector.Collect() {
+	metricChan := make(chan Metric)
+	go func() {
+		expvarCollector.Collect(metricChan)
+		close(metricChan)
+	}()
+	for m := range metricChan {
 		if m.Desc().Name != "expvar_memstats" {
 			metric.Reset()
 			m.Write(&metric)

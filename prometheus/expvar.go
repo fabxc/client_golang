@@ -89,8 +89,7 @@ func (e *ExpvarCollector) Describe() []*Desc {
 }
 
 // Collect implements Collector.
-func (e *ExpvarCollector) Collect() []Metric {
-	metrics := make([]Metric, 0, len(e.exports))
+func (e *ExpvarCollector) Collect(ch chan<- Metric) {
 	for name, desc := range e.exports {
 		var m Metric
 		expVar := expvar.Get(name)
@@ -117,7 +116,7 @@ func (e *ExpvarCollector) Collect() []Metric {
 					default:
 						return
 					}
-					metrics = append(metrics, m)
+					ch <- m
 					return
 				}
 				vm, ok := v.(map[string]interface{})
@@ -133,5 +132,4 @@ func (e *ExpvarCollector) Collect() []Metric {
 			processValue(v, 0)
 		}
 	}
-	return metrics
 }
