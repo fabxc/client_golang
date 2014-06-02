@@ -68,12 +68,12 @@ build: source_path dependencies
 	$(MAKE) -C examples build
 
 dependencies: source_path $(GOCC)
-	$(GO) get github.com/matttproud/gocheck
+	$(GO) get -d
 
 test: build
 	$(GO) test ./...
 
-benchmark:
+benchmark: build
 	$(GO) test -benchmem -test.bench="$(BENCHMARK_FILTER)" ./...
 
 advice: test
