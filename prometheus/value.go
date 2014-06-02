@@ -33,35 +33,35 @@ var (
 
 // Value is a generic metric for simple values. Its effective type can be
 // MetricType_UNTYPED, MetricType_GAUGE, or MetricType_COUNTER and is determined
-// by its descriptor. It implements Metric, MetricsCollector, Counter, Gauge,
+// by its descriptor. It implements Metric, Collector, Counter, Gauge,
 // and Untyped.
 type Value struct {
 	SelfCollector
 
-	mtx  sync.RWMutex
-	desc *Desc
-	dims []string
-	val  float64
+	mtx         sync.RWMutex
+	desc        *Desc
+	labelValues []string
+	val         float64
 }
 
 // NewValue returns a newly allocated ValueMetric. It returns an error if the
 // type in desc is a summary.
-func NewValue(desc *Desc, val float64, dims ...string) (*Value, error) {
+func NewValue(desc *Desc, val float64, labelValues ...string) (*Value, error) {
 	if desc.Type == dto.MetricType_SUMMARY {
 		return nil, errSummaryInValueMetric
 	}
-	if len(dims) != len(desc.VariableLabels) {
+	if len(labelValues) != len(desc.VariableLabels) {
 		return nil, errInconsistentCardinality
 	}
-	result := &Value{desc: desc, dims: dims, val: val}
+	result := &Value{desc: desc, labelValues: labelValues, val: val}
 	result.Init(result)
 	return result, nil
 }
 
 // MustNewValue is a version of NewValue that panics where NewValue would
 // have returned an error.
-func MustNewValue(desc *Desc, val float64, dims ...string) *Value {
-	v, err := NewValue(desc, val, dims...)
+func MustNewValue(desc *Desc, val float64, labelValues ...string) *Value {
+	v, err := NewValue(desc, val, labelValues...)
 	if err != nil {
 		panic(err)
 	}
@@ -103,21 +103,21 @@ func (v *Value) Write(out *dto.Metric) {
 	val := v.val
 	v.mtx.RUnlock()
 
-	populateMetric(v.desc, val, v.dims, out)
+	populateMetric(v.desc, val, v.labelValues, out)
 }
 
 func populateMetric(
 	d *Desc,
 	v float64,
-	dims []string,
+	labelValues []string,
 	m *dto.Metric,
 ) {
-	labels := make([]*dto.LabelPair, 0, len(d.PresetLabels)+len(d.VariableLabels))
-	labels = append(labels, d.presetLabelPairs...)
+	labels := make([]*dto.LabelPair, 0, len(d.ConstLabels)+len(d.VariableLabels))
+	labels = append(labels, d.constLabelPairs...)
 	for i, n := range d.VariableLabels {
 		labels = append(labels, &dto.LabelPair{
 			Name:  proto.String(n),
-			Value: proto.String(dims[i]),
+			Value: proto.String(labelValues[i]),
 		})
 	}
 	sort.Sort(lpSorter(labels))
@@ -136,26 +136,26 @@ func populateMetric(
 
 // NewConstMetric returns a metric with one fixed value that cannot be
 // changed. It is well suited for throw-away metrics that are just generated to
-// hand a value over to Prometheus (usually in a CollectMetrics method).  The
+// hand a value over to Prometheus (usually in a Collect method).  The
 // descriptor must have been registered with Prometheus before. Its Type field
 // must not be MetricType_SUMMARY.
-func NewConstMetric(desc *Desc, v float64, dims ...string) (Metric, error) {
+func NewConstMetric(desc *Desc, v float64, labelValues ...string) (Metric, error) {
 	if desc.canonName == "" {
 		return nil, errDescriptorNotRegistered
 	}
 	if desc.Type == dto.MetricType_SUMMARY {
 		return nil, errSummaryInConstMetric
 	}
-	if len(desc.VariableLabels) != len(dims) {
+	if len(desc.VariableLabels) != len(labelValues) {
 		return nil, errInconsistentCardinality
 	}
-	return &constMetric{val: v, desc: desc, dims: dims}, nil
+	return &constMetric{val: v, desc: desc, labelValues: labelValues}, nil
 }
 
 // MustNewConstMetric is a version of NewConstMetric that panics where
 // NewConstMetric would have returned an error.
-func MustNewConstMetric(desc *Desc, val float64, dims ...string) Metric {
-	m, err := NewConstMetric(desc, val, dims...)
+func MustNewConstMetric(desc *Desc, val float64, labelValues ...string) Metric {
+	m, err := NewConstMetric(desc, val, labelValues...)
 	if err != nil {
 		panic(err)
 	}
@@ -188,9 +188,9 @@ func MustNewConstMetrics(descs []*Desc, vals []float64) []Metric {
 }
 
 type constMetric struct {
-	val  float64
-	desc *Desc
-	dims []string
+	val         float64
+	desc        *Desc
+	labelValues []string
 }
 
 func (s *constMetric) Desc() *Desc {
@@ -198,5 +198,5 @@ func (s *constMetric) Desc() *Desc {
 }
 
 func (s *constMetric) Write(out *dto.Metric) {
-	populateMetric(s.desc, s.val, s.dims, out)
+	populateMetric(s.desc, s.val, s.labelValues, out)
 }

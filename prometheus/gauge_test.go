@@ -38,7 +38,7 @@ func ExampleGaugeVec() {
 		Subsystem:    "blob_storage",
 		Name:         "deletes",
 		Help:         "How many delete operations we have conducted against our blob storage system, partitioned by data corpus and qos.",
-		PresetLabels: map[string]string{"env": "production"}, // Normally filled from a flag or so.
+		ConstLabels: map[string]string{"env": "production"}, // Normally filled from a flag or so.
 		VariableLabels: []string{
 			// What is the body of data being deleted?
 			"corpus",

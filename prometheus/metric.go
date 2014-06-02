@@ -64,8 +64,8 @@ type Metric interface {
 // name. (Take into account that you may end up with the same fully-qualified
 // even with different settings for Namespace, Subsystem, and Name.) Descriptors
 // that share a fully-qualified name must also have the same Type, the same
-// Help, and the same label names (aka label dimensions) in each, PresetLabels
-// and VariableLabels, but they must differ in the values of the PresetLabels.
+// Help, and the same label names (aka label dimensions) in each, ConstLabels
+// and VariableLabels, but they must differ in the values of the ConstLabels.
 type Desc struct {
 	Namespace string
 	Subsystem string
@@ -74,8 +74,8 @@ type Desc struct {
 	// Help provides some helpful information about this metric.
 	Help string
 
-	// PresetLabels are labels with a fixed value.
-	PresetLabels map[string]string
+	// ConstLabels are labels with a fixed value.
+	ConstLabels map[string]string
 	// VariableLabels contains names of labels for which the metric
 	// maintains variable values.
 	VariableLabels []string
@@ -86,7 +86,7 @@ type Desc struct {
 
 	// canonName is materialized from Namespace, Subsystem, and Name.
 	canonName string
-	// id is a hash of the values of the PresetLabels and canonName. This
+	// id is a hash of the values of the ConstLabels and canonName. This
 	// must be unique among all registered descriptors and can therefore be
 	// used as an identifier of the descriptor.
 	id uint64
@@ -94,9 +94,9 @@ type Desc struct {
 	// and the Help string. Each Desc with the same canonName must have the
 	// same dimHash.
 	dimHash uint64
-	// presetLabelPairs contains precalculated DTO label pairs based on
-	// PresetLabels.
-	presetLabelPairs []*dto.LabelPair
+	// constLabelPairs contains precalculated DTO label pairs based on
+	// ConstLabels.
+	constLabelPairs []*dto.LabelPair
 }
 
 var (
@@ -141,12 +141,12 @@ func (d *Desc) build() error {
 
 	// labelValues contain the label values of preset labels (in order of
 	// their sorted label names) plus the canonName (at position 0).
-	labelValues := make([]string, 1, len(d.PresetLabels)+1)
+	labelValues := make([]string, 1, len(d.ConstLabels)+1)
 	labelValues[0] = d.canonName
-	labelNames := make([]string, 0, len(d.PresetLabels)+len(d.VariableLabels))
+	labelNames := make([]string, 0, len(d.ConstLabels)+len(d.VariableLabels))
 	labelNameSet := map[string]struct{}{}
 	// First add only the preset label names and sort them...
-	for labelName := range d.PresetLabels {
+	for labelName := range d.ConstLabels {
 		if labelName == "" {
 			return errEmptyLabelName
 		}
@@ -156,7 +156,7 @@ func (d *Desc) build() error {
 	sort.Strings(labelNames)
 	// ... so that we can now add preset label values in the order of their names.
 	for _, labelName := range labelNames {
-		labelValues = append(labelValues, d.PresetLabels[labelName])
+		labelValues = append(labelValues, d.ConstLabels[labelName])
 	}
 	// Now add the variable label names, but prefix them with something that
 	// cannot be in a regular label name. That prevents matching the label
@@ -195,14 +195,14 @@ func (d *Desc) build() error {
 	}
 	d.dimHash = h.Sum64()
 
-	d.presetLabelPairs = make([]*dto.LabelPair, 0, len(d.PresetLabels))
-	for n, v := range d.PresetLabels {
-		d.presetLabelPairs = append(d.presetLabelPairs, &dto.LabelPair{
+	d.constLabelPairs = make([]*dto.LabelPair, 0, len(d.ConstLabels))
+	for n, v := range d.ConstLabels {
+		d.constLabelPairs = append(d.constLabelPairs, &dto.LabelPair{
 			Name:  proto.String(n),
 			Value: proto.String(v),
 		})
 	}
-	sort.Sort(lpSorter(d.presetLabelPairs))
+	sort.Sort(lpSorter(d.constLabelPairs))
 
 	return nil
 }

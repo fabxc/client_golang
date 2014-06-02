@@ -84,13 +84,13 @@ func MustNewExpvarCollector(exports map[string]*Desc) *ExpvarCollector {
 	return e
 }
 
-// DescribeMetrics implements MetricsCollector.
-func (e *ExpvarCollector) DescribeMetrics() []*Desc {
+// Describe implements Collector.
+func (e *ExpvarCollector) Describe() []*Desc {
 	return e.descs
 }
 
-// CollectMetrics implements MetricsCollector.
-func (e *ExpvarCollector) CollectMetrics() []Metric {
+// Collect implements Collector.
+func (e *ExpvarCollector) Collect() []Metric {
 	metrics := make([]Metric, 0, len(e.exports))
 	for name, desc := range e.exports {
 		var m Metric
@@ -105,15 +105,15 @@ func (e *ExpvarCollector) CollectMetrics() []Metric {
 			var processValue func(v interface{}, i int)
 			processValue = func(v interface{}, i int) {
 				if i >= len(labels) {
-					dims := append(make([]string, 0, len(labels)), labels...)
+					copiedLabels := append(make([]string, 0, len(labels)), labels...)
 					switch v := v.(type) {
 					case float64:
-						m = MustNewConstMetric(desc, v, dims...)
+						m = MustNewConstMetric(desc, v, copiedLabels...)
 					case bool:
 						if v {
-							m = MustNewConstMetric(desc, 1, dims...)
+							m = MustNewConstMetric(desc, 1, copiedLabels...)
 						} else {
-							m = MustNewConstMetric(desc, 0, dims...)
+							m = MustNewConstMetric(desc, 0, copiedLabels...)
 						}
 					default:
 						return

@@ -73,15 +73,15 @@ type encoder func(io.Writer, *dto.MetricFamily) (int, error)
 
 type registry struct {
 	mtx                       sync.RWMutex
-	metricsCollectorsByID     map[uint64]MetricsCollector // ID is a hash of the descIDs.
+	collectorsByID     map[uint64]Collector // ID is a hash of the descIDs.
 	descIDs                   map[uint64]struct{}
 	dimHashesByName           map[string]uint64
 	bufs                      chan *bytes.Buffer
 	metricFamilyInjectionHook func() []*dto.MetricFamily
 }
 
-func (r *registry) Register(m MetricsCollector) (MetricsCollector, error) {
-	descs := m.DescribeMetrics()
+func (r *registry) Register(m Collector) (Collector, error) {
+	descs := m.Describe()
 	collectorID, err := buildDescsAndCalculateCollectorID(descs)
 	if err != nil {
 		return m, err
@@ -90,7 +90,7 @@ func (r *registry) Register(m MetricsCollector) (MetricsCollector, error) {
 	r.mtx.Lock()
 	defer r.mtx.Unlock()
 
-	if existing, exists := r.metricsCollectorsByID[collectorID]; exists {
+	if existing, exists := r.collectorsByID[collectorID]; exists {
 		return existing, errAlreadyReg
 	}
 
@@ -121,7 +121,7 @@ func (r *registry) Register(m MetricsCollector) (MetricsCollector, error) {
 		}
 	}
 	// Only after all tests have passed, actually register.
-	r.metricsCollectorsByID[collectorID] = m
+	r.collectorsByID[collectorID] = m
 	for hash := range newDescIDs {
 		r.descIDs[hash] = struct{}{}
 	}
@@ -131,7 +131,7 @@ func (r *registry) Register(m MetricsCollector) (MetricsCollector, error) {
 	return m, nil
 }
 
-func (r *registry) RegisterOrGet(m MetricsCollector) (MetricsCollector, error) {
+func (r *registry) RegisterOrGet(m Collector) (Collector, error) {
 	existing, err := r.Register(m)
 	if err != nil && err != errAlreadyReg {
 		return nil, err
@@ -139,15 +139,15 @@ func (r *registry) RegisterOrGet(m MetricsCollector) (MetricsCollector, error) {
 	return existing, nil
 }
 
-func (r *registry) Unregister(m MetricsCollector) (bool, error) {
-	descs := m.DescribeMetrics()
+func (r *registry) Unregister(m Collector) (bool, error) {
+	descs := m.Describe()
 	collectorID, err := buildDescsAndCalculateCollectorID(descs)
 	if err != nil {
 		return false, err
 	}
 
 	r.mtx.RLock()
-	if _, ok := r.metricsCollectorsByID[collectorID]; !ok {
+	if _, ok := r.collectorsByID[collectorID]; !ok {
 		r.mtx.RUnlock()
 		return false, nil
 	}
@@ -156,7 +156,7 @@ func (r *registry) Unregister(m MetricsCollector) (bool, error) {
 	r.mtx.Lock()
 	defer r.mtx.Unlock()
 
-	delete(r.metricsCollectorsByID, collectorID)
+	delete(r.collectorsByID, collectorID)
 	for _, desc := range descs {
 		delete(r.descIDs, desc.id)
 	}
@@ -201,7 +201,7 @@ func buildDescsAndCalculateCollectorID(descs []*Desc) (uint64, error) {
 // TODO: Consider a way to give access to non-default registries.
 func newRegistry() *registry {
 	return &registry{
-		metricsCollectorsByID: map[uint64]MetricsCollector{},
+		collectorsByID: map[uint64]Collector{},
 		descIDs:               map[uint64]struct{}{},
 		dimHashesByName:       map[string]uint64{},
 		bufs:                  make(chan *bytes.Buffer, numBufs),
@@ -217,15 +217,15 @@ var Handler = InstrumentHandler("prometheus", defRegistry)
 // Register enrolls a new metrics collector.  It returns an error if the
 // provided descriptors are problematic or at least one of them shares the same
 // name and preset labels with one that is already registered.  It returns the
-// enrolled metrics collector. Do not register the same MetricsCollector
+// enrolled metrics collector. Do not register the same Collector
 // multiple times concurrently.
-func Register(m MetricsCollector) (MetricsCollector, error) {
+func Register(m Collector) (Collector, error) {
 	return defRegistry.Register(m)
 }
 
 // MustRegister works like Register but panics where Register would have
 // returned an error.
-func MustRegister(m MetricsCollector) MetricsCollector {
+func MustRegister(m Collector) Collector {
 	m, err := Register(m)
 	if err != nil {
 		panic(err)
@@ -237,14 +237,14 @@ func MustRegister(m MetricsCollector) MetricsCollector {
 // an error if the provided descriptors are problematic or at least one of them
 // shares the same name and preset labels with one that is already registered.
 // It returns the enrolled metric or the existing one. Do not register the same
-// MetricsCollector multiple times concurrently.
-func RegisterOrGet(m MetricsCollector) (MetricsCollector, error) {
+// Collector multiple times concurrently.
+func RegisterOrGet(m Collector) (Collector, error) {
 	return defRegistry.RegisterOrGet(m)
 }
 
 // MustRegisterOrGet works like Register but panics where RegisterOrGet would
 // have returned an error.
-func MustRegisterOrGet(m MetricsCollector) MetricsCollector {
+func MustRegisterOrGet(m Collector) Collector {
 	existing, err := RegisterOrGet(m)
 	if err != nil {
 		panic(err)
@@ -254,7 +254,7 @@ func MustRegisterOrGet(m MetricsCollector) MetricsCollector {
 
 // Unregister unenrolls a metric returning whether the metric was unenrolled and
 // whether an error existed.
-func Unregister(m MetricsCollector) (bool, error) {
+func Unregister(m Collector) (bool, error) {
 	return defRegistry.Unregister(m)
 }
 
@@ -313,25 +313,25 @@ func (r *registry) writePB(w io.Writer, writeEncoded encoder) (int, error) {
 	// - Write resulting merged MetricFamilies with encoder (sorted by name).
 
 	metricFamiliesByName := make(map[string]*dto.MetricFamily, len(r.dimHashesByName))
-	collectorIDs := make([]uint64, 0, len(r.metricsCollectorsByID))
-	collectors := make([]MetricsCollector, 0, len(r.metricsCollectorsByID))
+	collectorIDs := make([]uint64, 0, len(r.collectorsByID))
+	collectors := make([]Collector, 0, len(r.collectorsByID))
 
 	r.mtx.RLock()
-	// For reproducible order, sort MetricsCollectors by their ID.
-	for collectorID := range r.metricsCollectorsByID {
+	// For reproducible order, sort Collectors by their ID.
+	for collectorID := range r.collectorsByID {
 		collectorIDs = append(collectorIDs, collectorID)
 	}
 	sort.Sort(hashSorter(collectorIDs))
 	for _, collectorID := range collectorIDs {
-		collectors = append(collectors, r.metricsCollectorsByID[collectorID])
+		collectors = append(collectors, r.collectorsByID[collectorID])
 	}
 	defer r.mtx.RUnlock()
 
 	for _, collector := range collectors {
 		// TODO: Vet concurrent collection of metrics.
-		for _, metric := range collector.CollectMetrics() {
+		for _, metric := range collector.Collect() {
 			desc := metric.Desc()
-			// TODO: Configurable check if desc is an element of collector.DescribeMetrics().
+			// TODO: Configurable check if desc is an element of collector.Describe().
 			metricFamily, ok := metricFamiliesByName[desc.canonName]
 			if !ok {
 				// TODO: Vet getting MetricFamily object from pool.

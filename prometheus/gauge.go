@@ -22,7 +22,7 @@ import (
 // Gauge proxies a scalar value.
 type Gauge interface {
 	Metric
-	MetricsCollector
+	Collector
 
 	Set(float64)
 	Inc()
@@ -79,8 +79,8 @@ func MustNewGaugeVec(desc *Desc) *GaugeVec {
 	return g
 }
 
-func (m *GaugeVec) GetMetricWithLabelValues(dims ...string) (Gauge, error) {
-	metric, err := m.MetricVec.GetMetricWithLabelValues(dims...)
+func (m *GaugeVec) GetMetricWithLabelValues(lvs ...string) (Gauge, error) {
+	metric, err := m.MetricVec.GetMetricWithLabelValues(lvs...)
 	return metric.(Gauge), err
 }
 
@@ -89,8 +89,8 @@ func (m *GaugeVec) GetMetricWithLabels(labels map[string]string) (Gauge, error) 
 	return metric.(Gauge), err
 }
 
-func (m *GaugeVec) WithLabelValues(dims ...string) Gauge {
-	return m.MetricVec.WithLabelValues(dims...).(Gauge)
+func (m *GaugeVec) WithLabelValues(lvs ...string) Gauge {
+	return m.MetricVec.WithLabelValues(lvs...).(Gauge)
 }
 
 func (m *GaugeVec) WithLabels(labels map[string]string) Gauge {

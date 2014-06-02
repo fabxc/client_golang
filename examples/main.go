@@ -104,11 +104,11 @@ type MemStatsCollector struct {
 	Descs []*prometheus.Desc
 }
 
-func (m *MemStatsCollector) DescribeMetrics() []*prometheus.Desc {
+func (m *MemStatsCollector) Describe() []*prometheus.Desc {
 	return m.Descs
 }
 
-func (m *MemStatsCollector) CollectMetrics() []prometheus.Metric {
+func (m *MemStatsCollector) Collect() []prometheus.Metric {
 	var ms runtime.MemStats
 	runtime.ReadMemStats(&ms)
 	metrics := prometheus.MustNewConstMetrics(
@@ -151,11 +151,11 @@ func (c *ClusterManager) ReallyExpensiveAssessmentOfTheSystemState() (
 	return
 }
 
-func (c *ClusterManager) DescribeMetrics() []*prometheus.Desc {
+func (c *ClusterManager) Describe() []*prometheus.Desc {
 	return []*prometheus.Desc{c.OOMCountDesc, c.RAMUsageDesc}
 }
 
-func (c *ClusterManager) CollectMetrics() []prometheus.Metric {
+func (c *ClusterManager) Collect() []prometheus.Metric {
 	// Create metrics from scratch each time because hosts that have gone
 	// away since the last scrape must not stay around.  If that's too much
 	// of a resource drain, keep the metrics around and reset them
@@ -169,7 +169,7 @@ func (c *ClusterManager) CollectMetrics() []prometheus.Metric {
 	for host, ramUsage := range ramUsageByHost {
 		ramUsageGauge.WithLabelValues(host).Set(ramUsage)
 	}
-	return append(oomCountCounter.CollectMetrics(), ramUsageGauge.CollectMetrics()...)
+	return append(oomCountCounter.Collect(), ramUsageGauge.Collect()...)
 }
 
 func NewClusterManager(zone string) *ClusterManager {
@@ -179,14 +179,14 @@ func NewClusterManager(zone string) *ClusterManager {
 			Subsystem:      "clustermanager",
 			Name:           "oom_count",
 			Help:           "number of OOM crashes",
-			PresetLabels:   map[string]string{"zone": zone},
+			ConstLabels:   map[string]string{"zone": zone},
 			VariableLabels: []string{"host"},
 		},
 		RAMUsageDesc: &prometheus.Desc{
 			Subsystem:      "clustermanager",
 			Name:           "ram_usage",
 			Help:           "RAM usage in MiB as reported to the cluster manager",
-			PresetLabels:   map[string]string{"zone": zone},
+			ConstLabels:   map[string]string{"zone": zone},
 			VariableLabels: []string{"host"},
 		},
 	}

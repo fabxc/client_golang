@@ -22,7 +22,7 @@ import (
 // Untyped proxies an untyped scalar value.
 type Untyped interface {
 	Metric
-	MetricsCollector
+	Collector
 
 	Set(float64)
 	Inc()
@@ -79,8 +79,8 @@ func MustNewUntypedVec(desc *Desc) *UntypedVec {
 	return u
 }
 
-func (m *UntypedVec) GetMetricWithLabelValues(dims ...string) (Untyped, error) {
-	metric, err := m.MetricVec.GetMetricWithLabelValues(dims...)
+func (m *UntypedVec) GetMetricWithLabelValues(lvs ...string) (Untyped, error) {
+	metric, err := m.MetricVec.GetMetricWithLabelValues(lvs...)
 	return metric.(Untyped), err
 }
 
@@ -89,8 +89,8 @@ func (m *UntypedVec) GetMetricWithLabels(labels map[string]string) (Untyped, err
 	return metric.(Untyped), err
 }
 
-func (m *UntypedVec) WithLabelValues(dims ...string) Untyped {
-	return m.MetricVec.WithLabelValues(dims...).(Untyped)
+func (m *UntypedVec) WithLabelValues(lvs ...string) Untyped {
+	return m.MetricVec.WithLabelValues(lvs...).(Untyped)
 }
 
 func (m *UntypedVec) WithLabels(labels map[string]string) Untyped {

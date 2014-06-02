@@ -23,7 +23,7 @@ import (
 	dto "github.com/prometheus/client_model/go"
 )
 
-// MetricVec is a MetricsCollector to bundle metrics of the same name that
+// MetricVec is a Collector to bundle metrics of the same name that
 // differ in their label values. MetricVec is usually not used directly but as a
 // building block for implementations of vectors of a given metric
 // type. GaugeVec, CounterVec, SummaryVec, and UntypedVec are examples already
@@ -42,15 +42,15 @@ type MetricVec struct {
 	opts *SummaryOptions // Only needed for summaries.
 }
 
-// DescribeMetrics implements MetricsCollector. The length of the returned slice
+// Describe implements Collector. The length of the returned slice
 // is always one.
-func (m *MetricVec) DescribeMetrics() []*Desc {
+func (m *MetricVec) Describe() []*Desc {
 	return []*Desc{m.desc}
 }
 
-// CollectMetrics implements MetricsCollector. It returns the metrics in hash
+// Collect implements Collector. It returns the metrics in hash
 // order.
-func (m *MetricVec) CollectMetrics() []Metric {
+func (m *MetricVec) Collect() []Metric {
 	m.mtx.RLock()
 	defer m.mtx.RUnlock()
 
@@ -67,17 +67,17 @@ func (m *MetricVec) CollectMetrics() []Metric {
 }
 
 // GetMetricWithLabelValues returns the metric where the variable lables have
-// the values passed in as dims. The order must be the same as in the
+// the values passed in as lvs. The order must be the same as in the
 // descriptor. If too many or too few arguments are usen, an error is returned.
-func (m *MetricVec) GetMetricWithLabelValues(dims ...string) (Metric, error) {
+func (m *MetricVec) GetMetricWithLabelValues(lvs ...string) (Metric, error) {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
 
-	h, err := m.hashLabelValues(dims)
+	h, err := m.hashLabelValues(lvs)
 	if err != nil {
 		return nil, err
 	}
-	return m.getOrCreateMetric(h, dims...), nil
+	return m.getOrCreateMetric(h, lvs...), nil
 }
 
 // GetMetricWithLabels returns the metric where the variable labels are the same
@@ -92,18 +92,18 @@ func (m *MetricVec) GetMetricWithLabels(labels map[string]string) (Metric, error
 	if err != nil {
 		return nil, err
 	}
-	dims := make([]string, len(labels))
+	lvs := make([]string, len(labels))
 	for i, label := range m.desc.VariableLabels {
-		dims[i] = labels[label]
+		lvs[i] = labels[label]
 	}
-	return m.getOrCreateMetric(h, dims...), nil
+	return m.getOrCreateMetric(h, lvs...), nil
 }
 
 // WithLabelValues works as GetMetricWithLabelValues, but panics if an error
 // occurs. The method allows neat syntax like:
 //   httpReqs.WithLabelValues("404", "POST").Inc()
-func (m *MetricVec) WithLabelValues(dims ...string) Metric {
-	metric, err := m.GetMetricWithLabelValues(dims...)
+func (m *MetricVec) WithLabelValues(lvs ...string) Metric {
+	metric, err := m.GetMetricWithLabelValues(lvs...)
 	if err != nil {
 		panic(err)
 	}
@@ -123,11 +123,11 @@ func (m *MetricVec) WithLabels(labels map[string]string) Metric {
 
 // DeleteLabelValues removes the metric where the variable labels are the same
 // as those passed in as labels. It returns true, if a metric was deleted.
-func (m *MetricVec) DeleteLabelValues(dims ...string) bool {
+func (m *MetricVec) DeleteLabelValues(lvs ...string) bool {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
 
-	h, err := m.hashLabelValues(dims)
+	h, err := m.hashLabelValues(lvs)
 	if err != nil {
 		return false
 	}
@@ -185,19 +185,19 @@ func (m *MetricVec) hashLabels(labels map[string]string) (uint64, error) {
 	return m.hash.Sum64(), nil
 }
 
-func (m *MetricVec) getOrCreateMetric(hash uint64, dims ...string) Metric {
+func (m *MetricVec) getOrCreateMetric(hash uint64, labelValues ...string) Metric {
 	var err error
 	metric, ok := m.children[hash]
 	if !ok {
-		// Copy dims so they don't have to be allocated even if we don't go
+		// Copy labelValues so they don't have to be allocated even if we don't go
 		// down this code path.
-		copiedDims := append(make([]string, 0, len(dims)), dims...)
+		copiedLabelValues := append(make([]string, 0, len(labelValues)), labelValues...)
 		if m.desc.Type == dto.MetricType_SUMMARY {
-			if metric, err = newSummary(m.desc, m.opts, copiedDims...); err != nil {
+			if metric, err = newSummary(m.desc, m.opts, copiedLabelValues...); err != nil {
 				panic(err) // Cannot happen.
 			}
 		} else {
-			metric = MustNewValue(m.desc, 0, copiedDims...)
+			metric = MustNewValue(m.desc, 0, copiedLabelValues...)
 		}
 		m.children[hash] = metric
 	}

@@ -34,7 +34,7 @@ import (
 // 1. sum of observations, 2. observation count, 3. rank estimations.
 type Summary interface {
 	Metric
-	MetricsCollector
+	Collector
 
 	Observe(float64)
 }
@@ -95,8 +95,8 @@ func MustNewSummary(desc *Desc, opts *SummaryOptions) Summary {
 	return s
 }
 
-func newSummary(desc *Desc, opts *SummaryOptions, dims ...string) (Summary, error) {
-	if len(desc.VariableLabels) != len(dims) {
+func newSummary(desc *Desc, opts *SummaryOptions, labelValues ...string) (Summary, error) {
+	if len(desc.VariableLabels) != len(labelValues) {
 		return nil, errInconsistentCardinality
 	}
 	desc.Type = dto.MetricType_SUMMARY
@@ -123,13 +123,13 @@ func newSummary(desc *Desc, opts *SummaryOptions, dims ...string) (Summary, erro
 	}
 
 	result := &summary{
-		desc:      desc,
-		opts:      opts,
-		dims:      dims,
-		hotBuf:    make([]float64, 0, opts.BufCap),
-		coldBuf:   make([]float64, 0, opts.BufCap),
-		lastFlush: time.Now(),
-		invs:      invs,
+		desc:        desc,
+		opts:        opts,
+		labelValues: labelValues,
+		hotBuf:      make([]float64, 0, opts.BufCap),
+		coldBuf:     make([]float64, 0, opts.BufCap),
+		lastFlush:   time.Now(),
+		invs:        invs,
 	}
 	result.Init(result)
 	return result, nil
@@ -143,7 +143,7 @@ type summary struct {
 
 	desc            *Desc
 	opts            *SummaryOptions
-	dims            []string
+	labelValues     []string
 	sum             float64
 	cnt             uint64
 	hotBuf, coldBuf []float64
@@ -267,12 +267,12 @@ func (s *summary) Write(out *dto.Metric) {
 	if len(sum.Quantile) > 0 {
 		sort.Sort(quantSort(sum.Quantile))
 	}
-	labels := make([]*dto.LabelPair, 0, len(s.desc.PresetLabels)+len(s.desc.VariableLabels))
-	labels = append(labels, s.desc.presetLabelPairs...)
+	labels := make([]*dto.LabelPair, 0, len(s.desc.ConstLabels)+len(s.desc.VariableLabels))
+	labels = append(labels, s.desc.constLabelPairs...)
 	for i, n := range s.desc.VariableLabels {
 		labels = append(labels, &dto.LabelPair{
 			Name:  proto.String(n),
-			Value: proto.String(s.dims[i]),
+			Value: proto.String(s.labelValues[i]),
 		})
 	}
 	sort.Sort(lpSorter(labels))
@@ -324,8 +324,8 @@ func MustNewSummaryVec(desc *Desc, opts *SummaryOptions) *SummaryVec {
 	return s
 }
 
-func (m *SummaryVec) WithLabelValues(dims ...string) Summary {
-	return m.MetricVec.WithLabelValues(dims...).(Summary)
+func (m *SummaryVec) WithLabelValues(lvs ...string) Summary {
+	return m.MetricVec.WithLabelValues(lvs...).(Summary)
 }
 
 func (m *SummaryVec) WithLabels(labels map[string]string) Summary {

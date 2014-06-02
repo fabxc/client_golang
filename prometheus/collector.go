@@ -13,34 +13,34 @@
 
 package prometheus
 
-// MetricsCollector is the interface implemented by anything that can be used by
+// Collector is the interface implemented by anything that can be used by
 // Prometheus to collect metrics. The stock metrics provided by this package
 // (like Gauge, Counter, Summary) are also MetricCollectors (which only ever
-// collect one metric, namely itself). An implementer of MetricsCollector may,
+// collect one metric, namely itself). An implementer of Collector may,
 // however, collect multiple metrics in a coordinated fashion and/or create
 // metrics on the fly. Examples for collectors already implemented in this
 // library are the multi-dimensional metrics (i.e. metrics with variable lables)
 // like GaugeVec or SummaryVec and the ExpvarCollector.
-type MetricsCollector interface {
-	// DescribeMetrics returns the super-set of all possible descriptors of
-	// metrics collected by this MetricsCollector. The returned descriptors
+type Collector interface {
+	// Describe returns the super-set of all possible descriptors of
+	// metrics collected by this Collector. The returned descriptors
 	// fulfill the consistency and uniqueness requirements described in the
 	// Desc documentation. This method idempotently returns the same
 	// descriptors throughout the lifetime of the Metric.
-	DescribeMetrics() []*Desc
-	// CollectMetrics is called by Prometheus when collecting metrics. The
+	Describe() []*Desc
+	// Collect is called by Prometheus when collecting metrics. The
 	// descriptor of each returned metric is one of those returned by
-	// DescribeMetrics. Returned metrics that share the same descriptor must
+	// Describe. Returned metrics that share the same descriptor must
 	// differ in their variable label values. The returned metrics are
 	// sorted consistently. This method may be called concurrently and must
 	// therefore be implemented in a concurrency safe way. Blocking occurs
 	// at the expense of total performance of rendering all registered
-	// metrics.  Ideally MetricsCollector implementations should support
+	// metrics.  Ideally Collector implementations should support
 	// concurrent readers.
-	CollectMetrics() []Metric
+	Collect() []Metric
 }
 
-// SelfCollector implements MetricsCollector for a single metric so that that
+// SelfCollector implements Collector for a single metric so that that
 // metric collects itself. Add it as an anonymous field to a struct that
 // implements Metric, and call Init with the metric itself as an argument.
 type SelfCollector struct {
@@ -56,12 +56,12 @@ func (c *SelfCollector) Init(self Metric) {
 	c.descs = []*Desc{self.Desc()}
 }
 
-// DescribeMetrics implements MetricsCollector.
-func (c *SelfCollector) DescribeMetrics() []*Desc {
+// Describe implements Collector.
+func (c *SelfCollector) Describe() []*Desc {
 	return c.descs
 }
 
-// CollectMetrics implements MetricsCollector.
-func (c *SelfCollector) CollectMetrics() []Metric {
+// Collect implements Collector.
+func (c *SelfCollector) Collect() []Metric {
 	return c.metrics
 }

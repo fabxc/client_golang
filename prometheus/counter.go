@@ -27,7 +27,7 @@ var (
 // Counter represents a numerical value that only ever goes up.
 type Counter interface {
 	Metric
-	MetricsCollector
+	Collector
 
 	// Set is used to set the counter to an arbitrary value. It is only used
 	// if you have to transfer a value from an external counter into this
@@ -76,7 +76,7 @@ func (c *counter) Add(v float64) {
 	c.Value.Add(v)
 }
 
-// CounterVec is a MetricsCollector that bundles a set of Counters that all
+// CounterVec is a Collector that bundles a set of Counters that all
 // share the same Desc, but have different values for their variable
 // lables. This is used if you want to count the same thing partitioned by
 // various dimensions (e.g. number of http request, partitioned by response code
@@ -120,8 +120,8 @@ func MustNewCounterVec(desc *Desc) *CounterVec {
 // the Counter the pointer is pointing to. In that case, updates of the Counter
 // will never be exported, even if a Counter with the same label values is
 // created later.
-func (m *CounterVec) GetMetricWithLabelValues(dims ...string) (Counter, error) {
-	metric, err := m.MetricVec.GetMetricWithLabelValues(dims...)
+func (m *CounterVec) GetMetricWithLabelValues(lvs ...string) (Counter, error) {
+	metric, err := m.MetricVec.GetMetricWithLabelValues(lvs...)
 	return metric.(Counter), err
 }
 
@@ -138,8 +138,8 @@ func (m *CounterVec) GetMetricWithLabels(labels map[string]string) (Counter, err
 // GetMetricWithLabelValues would have returned an error. That allows shortcuts
 // like
 //     myVec.WithLabelValues("foo", "bar").Add(42)
-func (m *CounterVec) WithLabelValues(dims ...string) Counter {
-	return m.MetricVec.WithLabelValues(dims...).(Counter)
+func (m *CounterVec) WithLabelValues(lvs ...string) Counter {
+	return m.MetricVec.WithLabelValues(lvs...).(Counter)
 }
 
 // WithLabels works as GetMetricWithLabels, but panics where GetMetricWithLabels
