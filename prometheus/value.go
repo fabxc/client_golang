@@ -121,16 +121,14 @@ func populateMetric(
 		})
 	}
 	sort.Sort(lpSorter(labels))
+	m.Label = labels
 	switch d.Type {
 	case dto.MetricType_COUNTER:
 		m.Counter = &dto.Counter{Value: proto.Float64(v)}
-		m.Label = labels
 	case dto.MetricType_GAUGE:
 		m.Gauge = &dto.Gauge{Value: proto.Float64(v)}
-		m.Label = labels
 	case dto.MetricType_UNTYPED:
 		m.Untyped = &dto.Untyped{Value: proto.Float64(v)}
-		m.Label = labels
 	default:
 		panic(fmt.Errorf("encountered unknown type %v", d.Type))
 	}

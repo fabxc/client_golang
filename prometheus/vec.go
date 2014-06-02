@@ -29,7 +29,7 @@ import (
 // type. GaugeVec, CounterVec, SummaryVec, and UntypedVec are examples already
 // provided with this library.
 type MetricVec struct {
-	mtx      sync.RWMutex
+	mtx      sync.RWMutex // Protects not only children, but also hash and buf.
 	children map[uint64]Metric
 	desc     *Desc
 

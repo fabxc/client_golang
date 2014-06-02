@@ -20,6 +20,7 @@ import (
 	"hash/fnv"
 	"sort"
 	"strings"
+
 	"code.google.com/p/goprotobuf/proto"
 
 	dto "github.com/prometheus/client_model/go"

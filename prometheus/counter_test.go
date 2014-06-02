@@ -19,24 +19,24 @@ import (
 )
 
 func ExampleCounter() {
-	sheepCounter, err := NewCounter(&Desc{
-		Name: "sheep_seen",
-		Help: "How many sheep we have seen before falling asleep.",
+	pushCounter, err := NewCounter(&Desc{
+		Name: "repository_pushes",
+		Help: "Number of pushes to external repository.",
 	})
 	if err != nil {
-		log.Print("No sheep counting tonight:", err)
+		log.Print("Push counter couldn't be constructed, no counting will happen:", err)
 		return
 	}
-	_, err = Register(sheepCounter)
+	_, err = Register(pushCounter)
 	if err != nil {
-		log.Print("Another reason not to count sheep:", err)
+		log.Print("Push counter couldn't  be registered, no counting will happen:", err)
 		return
 	}
 
-	stillAwake := make(chan struct{})
+	pushComplete := make(chan struct{})
 	// TODO: Sent something to channel.
-	for _ = range stillAwake {
-		sheepCounter.Inc()
+	for _ = range pushComplete {
+		pushCounter.Inc()
 	}
 }
 
