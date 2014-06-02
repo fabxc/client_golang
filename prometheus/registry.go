@@ -73,7 +73,7 @@ type encoder func(io.Writer, *dto.MetricFamily) (int, error)
 
 type registry struct {
 	mtx                       sync.RWMutex
-	collectorsByID     map[uint64]Collector // ID is a hash of the descIDs.
+	collectorsByID            map[uint64]Collector // ID is a hash of the descIDs.
 	descIDs                   map[uint64]struct{}
 	dimHashesByName           map[string]uint64
 	bufs                      chan *bytes.Buffer
@@ -201,10 +201,10 @@ func buildDescsAndCalculateCollectorID(descs []*Desc) (uint64, error) {
 // TODO: Consider a way to give access to non-default registries.
 func newRegistry() *registry {
 	return &registry{
-		collectorsByID: map[uint64]Collector{},
-		descIDs:               map[uint64]struct{}{},
-		dimHashesByName:       map[string]uint64{},
-		bufs:                  make(chan *bytes.Buffer, numBufs),
+		collectorsByID:  map[uint64]Collector{},
+		descIDs:         map[uint64]struct{}{},
+		dimHashesByName: map[string]uint64{},
+		bufs:            make(chan *bytes.Buffer, numBufs),
 	}
 }
 
@@ -335,6 +335,7 @@ func (r *registry) writePB(w io.Writer, writeEncoded encoder) (int, error) {
 			metricFamily, ok := metricFamiliesByName[desc.canonName]
 			if !ok {
 				// TODO: Vet getting MetricFamily object from pool.
+				// (Perhaps wait for Go 1.3 pools for that.)
 				metricFamily = &dto.MetricFamily{
 					Name: proto.String(desc.canonName),
 					Help: proto.String(desc.Help),
@@ -343,12 +344,21 @@ func (r *registry) writePB(w io.Writer, writeEncoded encoder) (int, error) {
 				metricFamiliesByName[desc.canonName] = metricFamily
 			}
 			// TODO: Vet getting Metric object from pool.
+			// (Perhaps wait for Go 1.3 pools for that.)
 			dtoMetric := &dto.Metric{}
 			metric.Write(dtoMetric)
 			// TODO: Configurable check if dtoMetric is consistent with desc.
 			metricFamily.Metric = append(metricFamily.Metric, dtoMetric)
 		}
 	}
+
+	// Now that MetricFamilies are all set, sort their Metrics
+	// lexicographically by their label values.
+	for _, mf := range metricFamiliesByName {
+		sort.Sort(metricSorter(mf.Metric))
+	}
+
+	// Write out MetricFamilies sorted by their name.
 	names := make([]string, 0, len(metricFamiliesByName))
 	for name := range metricFamiliesByName {
 		names = append(names, name)
@@ -379,4 +389,25 @@ func (r *registry) writeExternalPB(w io.Writer, writeEncoded encoder) (int, erro
 		}
 	}
 	return written, nil
+}
+
+type metricSorter []*dto.Metric
+
+func (s metricSorter) Len() int {
+	return len(s)
+}
+
+func (s metricSorter) Swap(i, j int) {
+	s[i], s[j] = s[j], s[i]
+}
+
+func (s metricSorter) Less(i, j int) bool {
+	for n, lp := range s[i].Label {
+		vi := *lp.Value
+		vj := *s[j].Label[n].Value
+		if vi != vj {
+			return vi < vj
+		}
+	}
+	return true
 }

@@ -17,7 +17,6 @@ import (
 	"bytes"
 	"fmt"
 	"hash"
-	"sort"
 	"sync"
 
 	dto "github.com/prometheus/client_model/go"
@@ -54,14 +53,9 @@ func (m *MetricVec) Collect() []Metric {
 	m.mtx.RLock()
 	defer m.mtx.RUnlock()
 
-	hashes := make([]uint64, 0, len(m.children))
 	metrics := make([]Metric, 0, len(m.children))
-	for h := range m.children {
-		hashes = append(hashes, h)
-	}
-	sort.Sort(hashSorter(hashes))
-	for _, h := range hashes {
-		metrics = append(metrics, m.children[h])
+	for _, metric := range m.children {
+		metrics = append(metrics, metric)
 	}
 	return metrics
 }

@@ -17,7 +17,6 @@ import (
 	"encoding/json"
 	"expvar"
 	"fmt"
-	"sort"
 
 	dto "github.com/prometheus/client_model/go"
 )
@@ -125,14 +124,9 @@ func (e *ExpvarCollector) Collect() []Metric {
 				if !ok {
 					return
 				}
-				lvs := make([]string, 0, len(vm))
-				for lv := range vm {
-					lvs = append(lvs, lv)
-				}
-				sort.Strings(lvs)
-				for _, lv := range lvs {
+				for lv, val := range vm {
 					labels[i] = lv
-					processValue(vm[lv], i+1)
+					processValue(val, i+1)
 				}
 			}
 

@@ -30,13 +30,12 @@ type Collector interface {
 	Describe() []*Desc
 	// Collect is called by Prometheus when collecting metrics. The
 	// descriptor of each returned metric is one of those returned by
-	// Describe. Returned metrics that share the same descriptor must
-	// differ in their variable label values. The returned metrics are
-	// sorted consistently. This method may be called concurrently and must
-	// therefore be implemented in a concurrency safe way. Blocking occurs
-	// at the expense of total performance of rendering all registered
-	// metrics.  Ideally Collector implementations should support
-	// concurrent readers.
+	// Describe. Returned metrics that share the same descriptor must differ
+	// in their variable label values. This method may be called
+	// concurrently and must therefore be implemented in a concurrency safe
+	// way. Blocking occurs at the expense of total performance of rendering
+	// all registered metrics.  Ideally Collector implementations should
+	// support concurrent readers.
 	Collect() []Metric
 }
 

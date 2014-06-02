@@ -120,7 +120,7 @@ func populateMetric(
 			Value: proto.String(labelValues[i]),
 		})
 	}
-	sort.Sort(lpSorter(labels))
+	sort.Sort(LabelPairSorter(labels))
 	m.Label = labels
 	switch d.Type {
 	case dto.MetricType_COUNTER:

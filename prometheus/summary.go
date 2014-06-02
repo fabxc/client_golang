@@ -275,7 +275,7 @@ func (s *summary) Write(out *dto.Metric) {
 			Value: proto.String(s.labelValues[i]),
 		})
 	}
-	sort.Sort(lpSorter(labels))
+	sort.Sort(LabelPairSorter(labels))
 
 	out.Summary = sum
 	out.Label = labels

@@ -29,8 +29,8 @@ import (
 // Metric models any sort of telemetric data you wish to export to Prometheus.
 type Metric interface {
 	// Desc returns the descriptor for the Metric. This method idempotently
-	// returns the same immutable descriptor throughout the lifetime of the
-	// Metric.
+	// returns the same descriptor throughout the lifetime of the
+	// Metric. The returned descriptor is immutable by contract.
 	Desc() *Desc
 	// Write encodes the Metric into a "Metric" Protocol Buffer data
 	// transmission object.
@@ -43,9 +43,12 @@ type Metric interface {
 	//
 	// The Prometheus client library attempts to minimize memory allocations
 	// and will provide a pre-existing reset dto.Metric pointer. Prometheus
-	// recycles the returned value, so Metric implementations should not
-	// keep any reference to it.  Prometheus will never invoke Write with a
-	// value.
+	// may recycle the dto.Metric proto message, so Metric implementations
+	// should just populate the provided dto.Metric and then should not keep
+	// any reference to it.
+	//
+	// While populating dto.Metric, labels must be sorted lexicographically.
+	// (Implementers may find LabelPairSorter useful for that.)
 	Write(*dto.Metric)
 }
 
@@ -202,22 +205,25 @@ func (d *Desc) build() error {
 			Value: proto.String(v),
 		})
 	}
-	sort.Sort(lpSorter(d.constLabelPairs))
+	sort.Sort(LabelPairSorter(d.constLabelPairs))
 
 	return nil
 }
 
-type lpSorter []*dto.LabelPair
+// LabelPairSorter implements sort.Interface. It is used to sort a slice of
+// dto.LabelPair pointers. This is useful for implementing the Write method of
+// custom metrics.
+type LabelPairSorter []*dto.LabelPair
 
-func (s lpSorter) Len() int {
+func (s LabelPairSorter) Len() int {
 	return len(s)
 }
 
-func (s lpSorter) Swap(i, j int) {
+func (s LabelPairSorter) Swap(i, j int) {
 	s[i], s[j] = s[j], s[i]
 }
 
-func (s lpSorter) Less(i, j int) bool {
+func (s LabelPairSorter) Less(i, j int) bool {
 	return s[i].GetName() < s[j].GetName()
 }
 
