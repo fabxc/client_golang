@@ -81,7 +81,7 @@ func (e *ExpvarCollector) Collect(ch chan<- Metric) {
 			continue
 		}
 		var v interface{}
-		labels := make([]string, len(desc.VariableLabels))
+		labels := make([]string, len(desc.variableLabels))
 		if err := json.Unmarshal([]byte(expVar.String()), &v); err == nil {
 
 			var processValue func(v interface{}, i int)

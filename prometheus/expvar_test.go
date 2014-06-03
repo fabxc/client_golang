@@ -24,20 +24,21 @@ import (
 
 func ExampleExpvarCollector() {
 	expvarCollector := NewExpvarCollector(map[string]*Desc{
-		"memstats": &Desc{
-			Name:           "expvar_memstats",
-			Help:           "All numeric memstats as one metric family. Not a good role-model, actually... ;-)",
-			VariableLabels: []string{"type"},
-		},
-		"lone-int": &Desc{
-			Name: "expvar_lone_int",
-			Help: "Just an expvar int as an example.",
-		},
-		"http-request-map": &Desc{
-			Name:           "http_requests",
-			Help:           "How many http requests processed, partitioned by status code and http method.",
-			VariableLabels: []string{"code", "method"},
-		},
+		"memstats": NewDesc(
+			"expvar_memstats",
+			"All numeric memstats as one metric family. Not a good role-model, actually... ;-)",
+			[]string{"type"}, nil,
+		),
+		"lone-int": NewDesc(
+			"expvar_lone_int",
+			"Just an expvar int as an example.",
+			nil, nil,
+		),
+		"http-request-map": NewDesc(
+			"http_requests",
+			"How many http requests processed, partitioned by status code and http method.",
+			[]string{"code", "method"}, nil,
+		),
 	})
 	MustRegister(expvarCollector)
 
@@ -76,7 +77,7 @@ func ExampleExpvarCollector() {
 		close(metricChan)
 	}()
 	for m := range metricChan {
-		if m.Desc().Name != "expvar_memstats" {
+		if m.Desc().canonName != "expvar_memstats" {
 			metric.Reset()
 			m.Write(&metric)
 			metricStrings = append(metricStrings, metric.String())

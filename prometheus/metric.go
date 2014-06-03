@@ -14,19 +14,10 @@
 package prometheus
 
 import (
-	"bytes"
-	"errors"
-	"hash/fnv"
-	"sort"
 	"strings"
-
-	"code.google.com/p/goprotobuf/proto"
 
 	dto "github.com/prometheus/client_model/go"
 )
-
-// Labels represents a collection of label name -> value mappings.
-type Labels map[string]string
 
 // Metric models any sort of telemetric data you wish to export to Prometheus.
 type Metric interface {
@@ -54,157 +45,32 @@ type Metric interface {
 	Write(*dto.Metric)
 }
 
-// Desc is a the descriptor for all Prometheus metrics. It is essentially the
-// immutable meta-data for a metric. (Any mutations to Desc instances will be
-// performed internally by the prometheus package. Users will only ever set
-// field values at initialization time.)
-//
-// Upon registration, Prometheus automatically materializes fully-qualified
-// metric names by joining Namespace, Subsystem, and Name with "_". It is
-// mandatory to provide a non-empty strings for Name and Help. All other fields
-// are optional and may be left at their zero values.
-//
-// Descriptors registered with the same registry have to fulfill certain
-// consistency and uniqueness criteria if they share the same fully-qualified
-// name. (Take into account that you may end up with the same fully-qualified
-// even with different settings for Namespace, Subsystem, and Name.) Descriptors
-// that share a fully-qualified name must also have the same Type, the same
-// Help, and the same label names (aka label dimensions) in each, ConstLabels
-// and VariableLabels, but they must differ in the values of the ConstLabels.
-type Desc struct {
+// Opts is a dumb-data type for metric options. Each metric implementation has
+// its own XXXOpts type, but in most cases, it can just be an alias to this type
+// (until specific requirements show up).
+type Opts struct {
+	// TODO proper doc comments.
 	Namespace string
 	Subsystem string
 	Name      string
-
 	// Help provides some helpful information about this metric.
-	Help string
-
-	// ConstLabels are labels with a fixed value.
+	Help        string
 	ConstLabels Labels
-	// VariableLabels contains names of labels for which the metric
-	// maintains variable values.
-	VariableLabels []string
-
-	// canonName is materialized from Namespace, Subsystem, and Name.
-	canonName string
-	// id is a hash of the values of the ConstLabels and canonName. This
-	// must be unique among all registered descriptors and can therefore be
-	// used as an identifier of the descriptor.
-	id uint64
-	// dimHash is a hash of the label names (preset and variable) and the
-	// Help string. Each Desc with the same canonName must have the same
-	// dimHash.
-	dimHash uint64
-	// constLabelPairs contains precalculated DTO label pairs based on
-	// ConstLabels.
-	constLabelPairs []*dto.LabelPair
 }
 
-var (
-	errEmptyName = errors.New("may not have empty name")
-	errEmptyHelp = errors.New("may not have empty help")
-
-	errNoDesc = errors.New("metric collector has no metric descriptors")
-
-	errInconsistentCardinality = errors.New("inconsistent label cardinality")
-	errLabelsForSimpleMetric   = errors.New("tried to create a simple metric with variable labels")
-	errNoLabelsForVecMetric    = errors.New("tried to create a vector metric without variable labels")
-
-	errEmptyLabelName = errors.New("empty label name")
-	errDuplLabelName  = errors.New("duplicate label name")
-)
-
-// build is called upon registration. It materializes cannonName and calculates
-// the various hashes.
-func (d *Desc) build() error {
-	if d.Name == "" {
-		return errEmptyName
-	}
-	if d.Help == "" {
-		return errEmptyHelp
+func BuildCanonName(namespace, subsystem, name string) string {
+	if name == "" {
+		return ""
 	}
 	switch {
-	case d.Namespace != "" && d.Subsystem != "":
-		d.canonName = strings.Join([]string{d.Namespace, d.Subsystem, d.Name}, "_")
-		break
-	case d.Namespace != "":
-		d.canonName = strings.Join([]string{d.Namespace, d.Name}, "_")
-		break
-	case d.Subsystem != "":
-		d.canonName = strings.Join([]string{d.Subsystem, d.Name}, "_")
-		break
-	default:
-		d.canonName = d.Name
+	case namespace != "" && subsystem != "":
+		return strings.Join([]string{namespace, subsystem, name}, "_")
+	case namespace != "":
+		return strings.Join([]string{namespace, name}, "_")
+	case subsystem != "":
+		return strings.Join([]string{subsystem, name}, "_")
 	}
-	// TODO: Check that the resulting canonName and all the label names
-	// (preset and variable) are valid identifiers in the Prometheus
-	// expression language.
-
-	// labelValues contain the label values of preset labels (in order of
-	// their sorted label names) plus the canonName (at position 0).
-	labelValues := make([]string, 1, len(d.ConstLabels)+1)
-	labelValues[0] = d.canonName
-	labelNames := make([]string, 0, len(d.ConstLabels)+len(d.VariableLabels))
-	labelNameSet := map[string]struct{}{}
-	// First add only the preset label names and sort them...
-	for labelName := range d.ConstLabels {
-		if labelName == "" {
-			return errEmptyLabelName
-		}
-		labelNames = append(labelNames, labelName)
-		labelNameSet[labelName] = struct{}{}
-	}
-	sort.Strings(labelNames)
-	// ... so that we can now add preset label values in the order of their names.
-	for _, labelName := range labelNames {
-		labelValues = append(labelValues, d.ConstLabels[labelName])
-	}
-	// Now add the variable label names, but prefix them with something that
-	// cannot be in a regular label name. That prevents matching the label
-	// dimension with a different mix between preset and variable labels.
-	for _, labelName := range d.VariableLabels {
-		if labelName == "" {
-			return errEmptyLabelName
-		}
-		labelNames = append(labelNames, "$"+labelName)
-		labelNameSet[labelName] = struct{}{}
-	}
-	if len(labelNames) != len(labelNameSet) {
-		return errDuplLabelName
-	}
-	h := fnv.New64a()
-	var b bytes.Buffer // To copy string contents into, avoiding []byte allocations.
-	for _, val := range labelValues {
-		b.Reset()
-		b.WriteString(val)
-		h.Write(b.Bytes())
-	}
-	d.id = h.Sum64()
-	// Sort labelNames so that order doesn't matter for the hash.
-	sort.Strings(labelNames)
-	// Now hash together (in this order) the help string and the sorted
-	// label names.
-	h.Reset()
-	b.Reset()
-	b.WriteString(d.Help)
-	h.Write(b.Bytes())
-	for _, labelName := range labelNames {
-		b.Reset()
-		b.WriteString(labelName)
-		h.Write(b.Bytes())
-	}
-	d.dimHash = h.Sum64()
-
-	d.constLabelPairs = make([]*dto.LabelPair, 0, len(d.ConstLabels))
-	for n, v := range d.ConstLabels {
-		d.constLabelPairs = append(d.constLabelPairs, &dto.LabelPair{
-			Name:  proto.String(n),
-			Value: proto.String(v),
-		})
-	}
-	sort.Sort(LabelPairSorter(d.constLabelPairs))
-
-	return nil
+	return name
 }
 
 // LabelPairSorter implements sort.Interface. It is used to sort a slice of

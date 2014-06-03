@@ -29,10 +29,7 @@ func benchmarkSummaryObserve(w int, b *testing.B) {
 	g := new(sync.WaitGroup)
 	g.Add(1)
 
-	s, err := NewSummary(&Desc{}, &SummaryOptions{})
-	if err != nil {
-		b.Fatal(err)
-	}
+	s := NewSummary(SummaryOpts{})
 
 	for i := 0; i < w; i++ {
 		go func() {
@@ -76,10 +73,7 @@ func benchmarkSummaryWrite(w int, b *testing.B) {
 	g := new(sync.WaitGroup)
 	g.Add(1)
 
-	s, err := NewSummary(&Desc{}, &SummaryOptions{})
-	if err != nil {
-		b.Fatal(err)
-	}
+	s := NewSummary(SummaryOpts{})
 
 	for i := 0; i < 1000000; i++ {
 		s.Observe(float64(i))
@@ -121,13 +115,10 @@ func BenchmarkSummaryWrite8(b *testing.B) {
 }
 
 func ExampleSummary() {
-	temps := MustNewSummary(
-		&Desc{
-			Name: "pond_temperature",
-			Help: "The temperature of the frog pond.", // Sorry, we can't measure how badly it smells.
-		},
-		&SummaryOptions{},
-	)
+	temps := NewSummary(SummaryOpts{
+		Name: "pond_temperature",
+		Help: "The temperature of the frog pond.", // Sorry, we can't measure how badly it smells.
+	})
 
 	temps.Observe(37)
 	// - count:   1
@@ -138,13 +129,12 @@ func ExampleSummary() {
 }
 
 func ExampleSummaryVec() {
-	temps := MustNewSummaryVec(
-		&Desc{
-			Name:           "pond_temperature",
-			Help:           "The temperature of the frog pond.", // Sorry, we can't measure how badly it smells.
-			VariableLabels: []string{"species"},
+	temps := NewSummaryVec(
+		SummaryOpts{
+			Name: "pond_temperature",
+			Help: "The temperature of the frog pond.", // Sorry, we can't measure how badly it smells.
 		},
-		&SummaryOptions{},
+		[]string{"species"},
 	)
 
 	temps.WithLabelValues("litoria-caerulea").Observe(37) // Not so stinky.

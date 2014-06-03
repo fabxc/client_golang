@@ -24,8 +24,7 @@ import (
 	"code.google.com/p/goprotobuf/proto"
 )
 
-// ValueType is an enumeration of metric types supported by Value and
-// ConstMetric.
+// ValueType is an enumeration of metric types that represent a simple value.
 type ValueType int
 
 const (
@@ -43,13 +42,11 @@ var (
 	errInconsistentLengthDescriptorsValues = errors.New("descriptor and value slice have inconsistent length")
 )
 
-// Value is a generic metric for simple values. It implements Metric, Collector,
+// value is a generic metric for simple values. It implements Metric, Collector,
 // Counter, Gauge, and Untyped. Its effective type is determined by
 // ValueType. This is a low-level building block used by the library to back the
-// implementations of Counter, Gauge, and Untyped. As a user of the library, you
-// will not need Value for regular operations, but you might find it useful to
-// implement your own Metric or Collector.
-type Value struct {
+// implementations of Counter, Gauge, and Untyped.
+type value struct {
 	SelfCollector
 
 	mtx       sync.RWMutex
@@ -59,64 +56,54 @@ type Value struct {
 	labelVals []string
 }
 
-// NewValue returns a newly allocated Value with the given Desc, ValueType,
-// sample value and label values. It returns an error if the number of label
+// newValue returns a newly allocated Value with the given Desc, ValueType,
+// sample value and label values. It panics if the number of label
 // values is different from the number of variable labels in Desc.
-func NewValue(desc *Desc, valueType ValueType, value float64, labelValues ...string) (*Value, error) {
-	if len(labelValues) != len(desc.VariableLabels) {
-		return nil, errInconsistentCardinality
+func newValue(desc *Desc, valueType ValueType, val float64, labelValues ...string) *value {
+	if len(labelValues) != len(desc.variableLabels) {
+		panic(errInconsistentCardinality)
 	}
-	result := &Value{
+	result := &value{
 		desc:      desc,
 		valType:   valueType,
-		val:       value,
+		val:       val,
 		labelVals: labelValues,
 	}
 	result.Init(result)
-	return result, nil
+	return result
 }
 
-// MustNewValue is a version of NewValue that panics where NewValue would
-// have returned an error.
-func MustNewValue(desc *Desc, valueType ValueType, value float64, labelValues ...string) *Value {
-	v, err := NewValue(desc, valueType, value, labelValues...)
-	if err != nil {
-		panic(err)
-	}
-	return v
-}
-
-func (v *Value) Desc() *Desc {
+func (v *value) Desc() *Desc {
 	return v.desc
 }
 
-func (v *Value) Set(val float64) {
+func (v *value) Set(val float64) {
 	v.mtx.Lock()
 	defer v.mtx.Unlock()
 
 	v.val = val
 }
 
-func (v *Value) Inc() {
+func (v *value) Inc() {
 	v.Add(1)
 }
 
-func (v *Value) Dec() {
+func (v *value) Dec() {
 	v.Add(-1)
 }
 
-func (v *Value) Add(val float64) {
+func (v *value) Add(val float64) {
 	v.mtx.Lock()
 	defer v.mtx.Unlock()
 
 	v.val += val
 }
 
-func (v *Value) Sub(val float64) {
+func (v *value) Sub(val float64) {
 	v.Add(val * -1)
 }
 
-func (v *Value) Write(out *dto.Metric) {
+func (v *value) Write(out *dto.Metric) {
 	v.mtx.RLock()
 	val := v.val
 	v.mtx.RUnlock()
@@ -131,7 +118,7 @@ func (v *Value) Write(out *dto.Metric) {
 // the Collect method. NewConstMetric returns an error if the length of
 // labelValues is not consistent with the variable labels in Desc.
 func NewConstMetric(desc *Desc, valueType ValueType, value float64, labelValues ...string) (Metric, error) {
-	if len(desc.VariableLabels) != len(labelValues) {
+	if len(desc.variableLabels) != len(labelValues) {
 		return nil, errInconsistentCardinality
 	}
 	return &constMetric{
@@ -174,9 +161,9 @@ func populateMetric(
 	labelValues []string,
 	m *dto.Metric,
 ) {
-	labels := make([]*dto.LabelPair, 0, len(d.ConstLabels)+len(d.VariableLabels))
+	labels := make([]*dto.LabelPair, 0, len(d.constLabelPairs)+len(d.variableLabels))
 	labels = append(labels, d.constLabelPairs...)
-	for i, n := range d.VariableLabels {
+	for i, n := range d.variableLabels {
 		labels = append(labels, &dto.LabelPair{
 			Name:  proto.String(n),
 			Value: proto.String(labelValues[i]),

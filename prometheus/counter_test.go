@@ -14,39 +14,37 @@
 package prometheus
 
 import (
-	"log"
+	"fmt"
 	"testing"
 )
 
 func ExampleCounter() {
-	pushCounter, err := NewCounter(&Desc{
+	pushCounter := NewCounter(CounterOpts{
 		Name: "repository_pushes",
 		Help: "Number of pushes to external repository.",
 	})
+	_, err := Register(pushCounter)
 	if err != nil {
-		log.Print("Push counter couldn't be constructed, no counting will happen:", err)
-		return
-	}
-	_, err = Register(pushCounter)
-	if err != nil {
-		log.Print("Push counter couldn't  be registered, no counting will happen:", err)
+		fmt.Println("Push counter couldn't  be registered, no counting will happen:", err)
 		return
 	}
 
 	pushComplete := make(chan struct{})
-	// TODO: Sent something to channel.
+	// TODO: Send something to channel.
 	for _ = range pushComplete {
 		pushCounter.Inc()
 	}
 }
 
 func ExampleCounterVec() {
-	httpReqs := MustNewCounterVec(&Desc{
-		Name:           "http_requests",
-		Help:           "How many http requests processed, partitioned by status code and http method.",
-		ConstLabels:    Labels{"env": "production"}, // Normally filled from a flag or so.
-		VariableLabels: []string{"code", "method"},
-	})
+	httpReqs := NewCounterVec(
+		CounterOpts{
+			Name:        "http_requests",
+			Help:        "How many http requests processed, partitioned by status code and http method.",
+			ConstLabels: Labels{"env": "production"}, // Normally filled from a flag or so.
+		},
+		[]string{"code", "method"},
+	)
 	MustRegister(httpReqs)
 
 	httpReqs.WithLabelValues("404", "POST").Add(42)
@@ -65,7 +63,7 @@ func ExampleCounterVec() {
 }
 
 func TestCounterAdd(t *testing.T) {
-	counter := MustNewCounter(&Desc{
+	counter := NewCounter(CounterOpts{
 		Name: "test",
 		Help: "test help",
 	}).(*counter)
@@ -78,7 +76,7 @@ func TestCounterAdd(t *testing.T) {
 		t.Errorf("Expected %f, got %f.", expected, got)
 	}
 
-	if expected, got := errCannotDecreaseCounter, decreaseCounter(counter); expected != got {
+	if expected, got := "counter cannot decrease in value", decreaseCounter(counter).Error(); expected != got {
 		t.Errorf("Expected error %q, got %q.", expected, got)
 	}
 }

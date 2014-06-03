@@ -26,8 +26,8 @@ import (
 	dto "github.com/prometheus/client_model/go"
 )
 
-// XXX: Timer for summary.
-// XXX: Standard http.HandlerFunc instrumentation pipeline.
+// TODO: Timer for summary.
+// TODO: Standard http.HandlerFunc instrumentation pipeline.
 
 // Summary captures individual observations from an event or sample stream and
 // summarizes them in a manner similar to traditional summary statistics:
@@ -60,59 +60,49 @@ const (
 // DefBufCap is the standard buffer size for collecting Summary observations.
 const DefBufCap = 1024
 
-// SummaryOptions determines options for a Summary.
-type SummaryOptions struct {
-	// Objectives defines the quantile rank estimates with the tolerated level of
-	// error defined as the value.  The default value is DefObjectives.
+// SummaryOpts determines options for a Summary.
+type SummaryOpts struct {
+	// TODO proper doc comments
+	Namespace string
+	Subsystem string
+	Name      string
+
+	// Help provides some helpful information about this metric.
+	Help        string
+	ConstLabels Labels
+
+	// Objectives defines the quantile rank estimates with the tolerated
+	// level of error defined as the value.  The default value is
+	// DefObjectives.
 	Objectives map[float64]float64
 
-	// FlushInter sets the interval at which the summary's event stream samples
-	// are flushed.  This provides a stronger guarantee that stale data won't
-	// crowd out more recent samples.  The default value is DefFlush.
+	// FlushInter sets the interval at which the summary's event stream
+	// samples are flushed.  This provides a stronger guarantee that stale
+	// data won't crowd out more recent samples.  The default value is
+	// DefFlush.
 	FlushInter time.Duration
 
-	// BufCap defines the default sample stream buffer size.  The default value of
-	// DefBufCap should suffice for most uses.
+	// BufCap defines the default sample stream buffer size.  The default
+	// value of DefBufCap should suffice for most uses.
 	BufCap int
 }
 
 // NewSummary generates a new Summary from the provided descriptor and options.
-func NewSummary(desc *Desc, opts *SummaryOptions) (Summary, error) {
-	if len(desc.VariableLabels) > 0 {
-		return nil, errLabelsForSimpleMetric
-	}
-	return newSummary(desc, opts)
+func NewSummary(opts SummaryOpts) Summary {
+	return newSummary(
+		NewDesc(
+			BuildCanonName(opts.Namespace, opts.Subsystem, opts.Name),
+			opts.Help,
+			nil,
+			opts.ConstLabels,
+		),
+		opts,
+	)
 }
 
-// MustNewSummary is a version of NewSummary that panics where NewSummary would
-// have returned an error.
-func MustNewSummary(desc *Desc, opts *SummaryOptions) Summary {
-	s, err := NewSummary(desc, opts)
-	if err != nil {
-		panic(err)
-	}
-	return s
-}
-
-func newSummary(desc *Desc, opts *SummaryOptions, labelValues ...string) (Summary, error) {
-	if len(desc.VariableLabels) != len(labelValues) {
-		return nil, errInconsistentCardinality
-	}
-
-	if opts.BufCap < 0 {
-		return nil, errIllegalCapDesc
-	} else if opts.BufCap == 0 {
-		opts.BufCap = DefBufCap
-	}
-
-	if opts.FlushInter == NoFlush {
-		opts.FlushInter = 0
-	} else if opts.FlushInter == 0 {
-		opts.FlushInter = DefFlush
-	}
-
-	if len(opts.Objectives) == 0 {
-		opts.Objectives = DefObjectives
+func newSummary(desc *Desc, opts SummaryOpts, labelValues ...string) Summary {
+	if len(desc.variableLabels) != len(labelValues) {
+		panic(errInconsistentCardinality)
 	}
 
 	invs := make([]quantile.Estimate, 0, len(opts.Objectives))
@@ -120,17 +110,42 @@ func newSummary(desc *Desc, opts *SummaryOptions, labelValues ...string) (Summar
 		invs = append(invs, quantile.Known(rank, acc))
 	}
 
+	switch {
+	case opts.BufCap < 0:
+		panic(errIllegalCapDesc)
+	case opts.BufCap == 0:
+		opts.BufCap = DefBufCap
+	default:
+		opts.BufCap = opts.BufCap
+	}
+
 	result := &summary{
-		desc:        desc,
-		opts:        opts,
+		desc: desc,
+
 		labelValues: labelValues,
 		hotBuf:      make([]float64, 0, opts.BufCap),
 		coldBuf:     make([]float64, 0, opts.BufCap),
 		lastFlush:   time.Now(),
 		invs:        invs,
 	}
-	result.Init(result)
-	return result, nil
+
+	switch {
+	case opts.FlushInter < 0: // Includes NoFlush.
+		result.flushInter = 0
+	case opts.FlushInter == 0:
+		result.flushInter = DefFlush
+	default:
+		result.flushInter = opts.FlushInter
+	}
+
+	if len(opts.Objectives) == 0 {
+		result.objectives = DefObjectives
+	} else {
+		result.objectives = opts.Objectives
+	}
+
+	result.Init(result) // Init self-collection.
+	return result
 }
 
 type summary struct {
@@ -139,8 +154,10 @@ type summary struct {
 	bufMtx sync.Mutex
 	mtx    sync.Mutex
 
-	desc            *Desc
-	opts            *SummaryOptions
+	desc       *Desc
+	objectives map[float64]float64
+	flushInter time.Duration
+
 	labelValues     []string
 	sum             float64
 	cnt             uint64
@@ -208,11 +225,11 @@ func (s *summary) needFullCompact() bool {
 }
 
 func (s *summary) maybeFlush() {
-	if s.opts.FlushInter == 0 {
+	if s.flushInter == 0 {
 		return
 	}
 
-	if time.Since(s.lastFlush) < s.opts.FlushInter {
+	if time.Since(s.lastFlush) < s.flushInter {
 		return
 	}
 
@@ -245,8 +262,8 @@ func (s *summary) Write(out *dto.Metric) {
 
 	if s.needFullCompact() {
 		s.fullCompact()
-		qs := make([]*dto.Quantile, 0, len(s.opts.Objectives))
-		for rank := range s.opts.Objectives {
+		qs := make([]*dto.Quantile, 0, len(s.objectives))
+		for rank := range s.objectives {
 			qs = append(qs, &dto.Quantile{
 				Quantile: proto.Float64(rank),
 				Value:    proto.Float64(s.est.Get(rank)),
@@ -265,9 +282,9 @@ func (s *summary) Write(out *dto.Metric) {
 	if len(sum.Quantile) > 0 {
 		sort.Sort(quantSort(sum.Quantile))
 	}
-	labels := make([]*dto.LabelPair, 0, len(s.desc.ConstLabels)+len(s.desc.VariableLabels))
+	labels := make([]*dto.LabelPair, 0, len(s.desc.constLabelPairs)+len(s.desc.variableLabels))
 	labels = append(labels, s.desc.constLabelPairs...)
-	for i, n := range s.desc.VariableLabels {
+	for i, n := range s.desc.variableLabels {
 		labels = append(labels, &dto.LabelPair{
 			Name:  proto.String(n),
 			Value: proto.String(s.labelValues[i]),
@@ -297,34 +314,33 @@ type SummaryVec struct {
 	MetricVec
 }
 
-func NewSummaryVec(desc *Desc, opts *SummaryOptions) (*SummaryVec, error) {
-	if len(desc.VariableLabels) == 0 {
-		return nil, errNoLabelsForVecMetric
-	}
+func NewSummaryVec(opts SummaryOpts, labelNames []string) *SummaryVec {
+	desc := NewDesc(
+		BuildCanonName(opts.Namespace, opts.Subsystem, opts.Name),
+		opts.Help,
+		labelNames,
+		opts.ConstLabels,
+	)
 	return &SummaryVec{
 		MetricVec: MetricVec{
 			children: map[uint64]Metric{},
 			desc:     desc,
 			hash:     fnv.New64a(),
 			newMetric: func(lvs ...string) Metric {
-				metric, err := newSummary(desc, opts, lvs...)
-				if err != nil {
-					panic(err) // Cannot happen.
-				}
-				return metric
+				return newSummary(desc, opts, lvs...)
 			},
 		},
-	}, nil
+	}
 }
 
-// MustNewSummaryVec is a version of NewSummaryVec that panics where NewSummaryVec would
-// have returned an error.
-func MustNewSummaryVec(desc *Desc, opts *SummaryOptions) *SummaryVec {
-	s, err := NewSummaryVec(desc, opts)
-	if err != nil {
-		panic(err)
-	}
-	return s
+func (m *SummaryVec) GetMetricWithLabelValues(lvs ...string) (Summary, error) {
+	metric, err := m.MetricVec.GetMetricWithLabelValues(lvs...)
+	return metric.(Summary), err
+}
+
+func (m *SummaryVec) GetMetricWith(labels Labels) (Summary, error) {
+	metric, err := m.MetricVec.GetMetricWith(labels)
+	return metric.(Summary), err
 }
 
 func (m *SummaryVec) WithLabelValues(lvs ...string) Summary {

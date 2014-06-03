@@ -27,52 +27,39 @@ type Gauge interface {
 	Sub(float64)
 }
 
-// NewGauge emits a new Gauge from the provided descriptor.
-func NewGauge(desc *Desc) (Gauge, error) {
-	if len(desc.VariableLabels) > 0 {
-		return nil, errLabelsForSimpleMetric
-	}
-	return NewValue(desc, GaugeValue, 0)
-}
+type GaugeOpts Opts
 
-// MustNewGauge is a version of NewGauge that panics where NewGauge would
-// have returned an error.
-func MustNewGauge(desc *Desc) Gauge {
-	g, err := NewGauge(desc)
-	if err != nil {
-		panic(err)
-	}
-	return g
+// NewGauge emits a new Gauge from the provided descriptor.
+func NewGauge(opts GaugeOpts) Gauge {
+	return newValue(NewDesc(
+		BuildCanonName(opts.Namespace, opts.Subsystem, opts.Name),
+		opts.Help,
+		nil,
+		opts.ConstLabels,
+	), GaugeValue, 0)
 }
 
 type GaugeVec struct {
 	MetricVec
 }
 
-func NewGaugeVec(desc *Desc) (*GaugeVec, error) {
-	if len(desc.VariableLabels) == 0 {
-		return nil, errNoLabelsForVecMetric
-	}
+func NewGaugeVec(opts GaugeOpts, labelNames []string) *GaugeVec {
+	desc := NewDesc(
+		BuildCanonName(opts.Namespace, opts.Subsystem, opts.Name),
+		opts.Help,
+		labelNames,
+		opts.ConstLabels,
+	)
 	return &GaugeVec{
 		MetricVec: MetricVec{
 			children: map[uint64]Metric{},
 			desc:     desc,
 			hash:     fnv.New64a(),
 			newMetric: func(lvs ...string) Metric {
-				return MustNewValue(desc, GaugeValue, 0, lvs...)
+				return newValue(desc, GaugeValue, 0, lvs...)
 			},
 		},
-	}, nil
-}
-
-// MustNewGaugeVec is a version of NewGaugeVec that panics where NewGaugeVec would
-// have returned an error.
-func MustNewGaugeVec(desc *Desc) *GaugeVec {
-	g, err := NewGaugeVec(desc)
-	if err != nil {
-		panic(err)
 	}
-	return g
 }
 
 func (m *GaugeVec) GetMetricWithLabelValues(lvs ...string) (Gauge, error) {

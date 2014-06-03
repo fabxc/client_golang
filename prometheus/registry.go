@@ -38,7 +38,10 @@ import (
 	"github.com/prometheus/client_golang/text"
 )
 
-var errAlreadyReg = errors.New("duplicate metrics collector registration attempted")
+var (
+	errAlreadyReg = errors.New("duplicate metrics collector registration attempted")
+	errNoDesc     = errors.New("metric collector has no metric descriptors")
+)
 
 const (
 	// Constants for object pools.
@@ -46,6 +49,7 @@ const (
 	numMetricFamilies = 1000
 	numMetrics        = 10000
 
+	// Capacity for the channel to collect metrics.
 	capMetricChan = 1000
 
 	contentTypeHeader = "Content-Type"
@@ -89,10 +93,11 @@ type registry struct {
 
 func (r *registry) Register(c Collector) (Collector, error) {
 	descs := c.Describe()
-	collectorID, err := buildDescsAndCalculateCollectorID(descs)
+	err := checkDescs(descs)
 	if err != nil {
 		return c, err
 	}
+	collectorID := calculateCollectorID(descs)
 
 	r.mtx.Lock()
 	defer r.mtx.Unlock()
@@ -107,21 +112,21 @@ func (r *registry) Register(c Collector) (Collector, error) {
 	for _, desc := range descs {
 		// descID uniqueness, i.e. canonName and preset label values.
 		if _, exists := r.descIDs[desc.id]; exists {
-			return nil, fmt.Errorf("descriptor %+v already exists with the same fully-qualified name and preset label values", desc)
+			return nil, fmt.Errorf("descriptor %s already exists with the same fully-qualified name and const label values", desc)
 		}
 		if _, exists := newDescIDs[desc.id]; exists {
-			return nil, fmt.Errorf("metrics collector has two descriptors with the same fully-qualified name and preset label values, offender is %+v", desc)
+			return nil, fmt.Errorf("metrics collector has two descriptors with the same fully-qualified name and preset label values, offender is %s", desc)
 		}
 		newDescIDs[desc.id] = struct{}{}
-		// Dimension consistency, i.e. label names, type, help.
+		// Dimension consistency, i.e. label names and help.
 		if dimHash, exists := r.dimHashesByName[desc.canonName]; exists {
 			if dimHash != desc.dimHash {
-				return nil, fmt.Errorf("previously registered descriptors with the same fully qualified name as %+v have different label dimensions, help string, or type", desc)
+				return nil, fmt.Errorf("previously registered descriptors with the same fully qualified name as %s have different label names or help string", desc)
 			}
 		} else {
 			if dimHash, exists := newDimHashesByName[desc.canonName]; exists {
 				if dimHash != desc.dimHash {
-					return nil, fmt.Errorf("metrics collector has inconsistent label dimensions, help string, or type for the same fully-qualified name, offender is %+v", desc)
+					return nil, fmt.Errorf("metrics collector has inconsistent label names or help string for the same fully-qualified name, offender is %s", desc)
 				}
 			}
 			newDimHashesByName[desc.canonName] = desc.dimHash
@@ -146,17 +151,14 @@ func (r *registry) RegisterOrGet(m Collector) (Collector, error) {
 	return existing, nil
 }
 
-func (r *registry) Unregister(m Collector) (bool, error) {
+func (r *registry) Unregister(m Collector) bool {
 	descs := m.Describe()
-	collectorID, err := buildDescsAndCalculateCollectorID(descs)
-	if err != nil {
-		return false, err
-	}
+	collectorID := calculateCollectorID(descs)
 
 	r.mtx.RLock()
 	if _, ok := r.collectorsByID[collectorID]; !ok {
 		r.mtx.RUnlock()
-		return false, nil
+		return false
 	}
 	r.mtx.RUnlock()
 
@@ -169,7 +171,7 @@ func (r *registry) Unregister(m Collector) (bool, error) {
 	}
 	// dimHashesByName is left untouched as those must be consistent
 	// throughout the lifetime of a program.
-	return true, nil
+	return true
 }
 
 func (r *registry) getBuf() *bytes.Buffer {
@@ -223,20 +225,26 @@ func (r *registry) giveMetric(m *dto.Metric) {
 	}
 }
 
-func buildDescsAndCalculateCollectorID(descs []*Desc) (uint64, error) {
+func checkDescs(descs []*Desc) error {
 	if len(descs) == 0 {
-		return 0, errNoDesc
+		return errNoDesc
 	}
+	for _, desc := range descs {
+		if desc.err != nil {
+			return fmt.Errorf("descriptor %s is invalid: %s", desc, desc.err)
+		}
+	}
+	return nil
+}
+
+func calculateCollectorID(descs []*Desc) uint64 {
 	h := fnv.New64a()
 	buf := make([]byte, 8)
 	for _, desc := range descs {
-		if err := desc.build(); err != nil {
-			return 0, err
-		}
 		binary.BigEndian.PutUint64(buf, desc.id)
 		h.Write(buf)
 	}
-	return h.Sum64(), nil
+	return h.Sum64()
 }
 
 func newRegistry() *registry {
@@ -293,9 +301,8 @@ func MustRegisterOrGet(m Collector) Collector {
 	return existing
 }
 
-// Unregister unenrolls a metric returning whether the metric was unenrolled and
-// whether an error existed.
-func Unregister(m Collector) (bool, error) {
+// Unregister unenrolls a metric returning whether the metric was unenrolled.
+func Unregister(m Collector) bool {
 	return defRegistry.Unregister(m)
 }
 
@@ -380,7 +387,7 @@ func (r *registry) writePB(w io.Writer, writeEncoded encoder) (int, error) {
 			metricFamily = r.getMetricFamily()
 			defer r.giveMetricFamily(metricFamily)
 			metricFamily.Name = proto.String(desc.canonName)
-			metricFamily.Help = proto.String(desc.Help)
+			metricFamily.Help = proto.String(desc.help)
 			metricFamiliesByName[desc.canonName] = metricFamily
 		}
 		dtoMetric := r.getMetric()

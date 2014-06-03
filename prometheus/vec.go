@@ -82,7 +82,7 @@ func (m *MetricVec) GetMetricWith(labels Labels) (Metric, error) {
 		return nil, err
 	}
 	lvs := make([]string, len(labels))
-	for i, label := range m.desc.VariableLabels {
+	for i, label := range m.desc.variableLabels {
 		lvs[i] = labels[label]
 	}
 	return m.getOrCreateMetric(h, lvs...), nil
@@ -144,8 +144,18 @@ func (m *MetricVec) Delete(labels Labels) bool {
 	return true
 }
 
+// Reset deletes all metrics in this vector.
+func (m *MetricVec) Reset() {
+	m.mtx.Lock()
+	defer m.mtx.Unlock()
+
+	for h := range m.children {
+		delete(m.children, h)
+	}
+}
+
 func (m *MetricVec) hashLabelValues(vals []string) (uint64, error) {
-	if len(vals) != len(m.desc.VariableLabels) {
+	if len(vals) != len(m.desc.variableLabels) {
 		return 0, errInconsistentCardinality
 	}
 	m.hash.Reset()
@@ -158,11 +168,11 @@ func (m *MetricVec) hashLabelValues(vals []string) (uint64, error) {
 }
 
 func (m *MetricVec) hashLabels(labels Labels) (uint64, error) {
-	if len(labels) != len(m.desc.VariableLabels) {
+	if len(labels) != len(m.desc.variableLabels) {
 		return 0, errInconsistentCardinality
 	}
 	m.hash.Reset()
-	for _, label := range m.desc.VariableLabels {
+	for _, label := range m.desc.variableLabels {
 		val, ok := labels[label]
 		if !ok {
 			return 0, fmt.Errorf("label name %q missing in label map", label)

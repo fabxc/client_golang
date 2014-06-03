@@ -18,11 +18,13 @@ import (
 )
 
 func BenchmarkPrometheusCounter(b *testing.B) {
-	m := MustNewCounterVec(&Desc{
-		Name:           "benchmark_counter",
-		Help:           "A counter to benchmark it.",
-		VariableLabels: []string{"one", "two", "three"},
-	})
+	m := NewCounterVec(
+		CounterOpts{
+			Name: "benchmark_counter",
+			Help: "A counter to benchmark it.",
+		},
+		[]string{"one", "two", "three"},
+	)
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -31,11 +33,13 @@ func BenchmarkPrometheusCounter(b *testing.B) {
 }
 
 func BenchmarkPrometheusCounterWithMappedLabels(b *testing.B) {
-	m := MustNewCounterVec(&Desc{
-		Name:           "benchmark_counter",
-		Help:           "A counter to benchmark it.",
-		VariableLabels: []string{"one", "two", "three"},
-	})
+	m := NewCounterVec(
+		CounterOpts{
+			Name: "benchmark_counter",
+			Help: "A counter to benchmark it.",
+		},
+		[]string{"one", "two", "three"},
+	)
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -44,11 +48,13 @@ func BenchmarkPrometheusCounterWithMappedLabels(b *testing.B) {
 }
 
 func BenchmarkPrometheusCounterWithPreparedMappedLabels(b *testing.B) {
-	m := MustNewCounterVec(&Desc{
-		Name:           "benchmark_counter",
-		Help:           "A counter to benchmark it.",
-		VariableLabels: []string{"one", "two", "three"},
-	})
+	m := NewCounterVec(
+		CounterOpts{
+			Name: "benchmark_counter",
+			Help: "A counter to benchmark it.",
+		},
+		[]string{"one", "two", "three"},
+	)
 	b.ReportAllocs()
 	b.ResetTimer()
 	labels := Labels{"two": "zwei", "one": "eins", "three": "drei"}
@@ -58,7 +64,7 @@ func BenchmarkPrometheusCounterWithPreparedMappedLabels(b *testing.B) {
 }
 
 func BenchmarkPrometheusCounterNoLabels(b *testing.B) {
-	m := MustNewCounter(&Desc{
+	m := NewCounter(CounterOpts{
 		Name: "benchmark_counter",
 		Help: "A counter to benchmark it.",
 	})
@@ -70,11 +76,13 @@ func BenchmarkPrometheusCounterNoLabels(b *testing.B) {
 }
 
 func BenchmarkPrometheusGauge(b *testing.B) {
-	m := MustNewGaugeVec(&Desc{
-		Name:           "benchmark_gauge",
-		Help:           "A gauge to benchmark it.",
-		VariableLabels: []string{"one", "two", "three"},
-	})
+	m := NewGaugeVec(
+		GaugeOpts{
+			Name: "benchmark_gauge",
+			Help: "A gauge to benchmark it.",
+		},
+		[]string{"one", "two", "three"},
+	)
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -83,7 +91,7 @@ func BenchmarkPrometheusGauge(b *testing.B) {
 }
 
 func BenchmarkPrometheusGaugeNoLabels(b *testing.B) {
-	m := MustNewGauge(&Desc{
+	m := NewGauge(GaugeOpts{
 		Name: "benchmark_gauge",
 		Help: "A gauge to benchmark it.",
 	})
@@ -95,13 +103,12 @@ func BenchmarkPrometheusGaugeNoLabels(b *testing.B) {
 }
 
 func BenchmarkPrometheusSummary(b *testing.B) {
-	m := MustNewSummaryVec(
-		&Desc{
-			Name:           "benchmark_summary",
-			Help:           "A summary to benchmark it.",
-			VariableLabels: []string{"one", "two", "three"},
+	m := NewSummaryVec(
+		SummaryOpts{
+			Name: "benchmark_summary",
+			Help: "A summary to benchmark it.",
 		},
-		&SummaryOptions{},
+		[]string{"one", "two", "three"},
 	)
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -111,12 +118,10 @@ func BenchmarkPrometheusSummary(b *testing.B) {
 }
 
 func BenchmarkPrometheusSummaryNoLabels(b *testing.B) {
-	m := MustNewSummary(
-		&Desc{
-			Name: "benchmark_summary",
-			Help: "A summary to benchmark it.",
-		},
-		&SummaryOptions{},
+	m := NewSummary(SummaryOpts{
+		Name: "benchmark_summary",
+		Help: "A summary to benchmark it.",
+	},
 	)
 	b.ReportAllocs()
 	b.ResetTimer()

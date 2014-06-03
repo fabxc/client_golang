@@ -14,6 +14,7 @@
 package prometheus
 
 import (
+	"flag"
 	"math/rand"
 	"sync"
 	"testing"
@@ -21,7 +22,7 @@ import (
 )
 
 func ExampleGauge() {
-	delOps := MustNewGauge(&Desc{
+	delOps := NewGauge(GaugeOpts{
 		Namespace: "our_company",
 		Subsystem: "blob_storage",
 		Name:      "deletes",
@@ -33,19 +34,24 @@ func ExampleGauge() {
 }
 
 func ExampleGaugeVec() {
-	delOps := MustNewGaugeVec(&Desc{
-		Namespace:   "our_company",
-		Subsystem:   "blob_storage",
-		Name:        "deletes",
-		Help:        "How many delete operations we have conducted against our blob storage system, partitioned by data corpus and qos.",
-		ConstLabels: Labels{"env": "production"}, // Normally filled from a flag or so.
-		VariableLabels: []string{
+	binaryVersion := flag.String("binary_version", "debug", "Version of the binary: debug, canary, production.")
+	flag.Parse()
+
+	delOps := NewGaugeVec(
+		GaugeOpts{
+			Namespace:   "our_company",
+			Subsystem:   "blob_storage",
+			Name:        "deletes",
+			Help:        "How many delete operations we have conducted against our blob storage system, partitioned by data corpus and qos.",
+			ConstLabels: Labels{"binary_version": *binaryVersion},
+		},
+		[]string{
 			// What is the body of data being deleted?
 			"corpus",
 			// How urgently do we need to delete the data?
 			"qos",
 		},
-	})
+	)
 	MustRegister(delOps)
 
 	// Set a sample value using compact (but order-sensitive!) WithLabelValues().
@@ -94,7 +100,7 @@ func TestGaugeConcurrency(t *testing.T) {
 			close(done)
 		}()
 
-		gge := MustNewGauge(&Desc{
+		gge := NewGauge(GaugeOpts{
 			Name: "test_gauge",
 			Help: "no help can be found here",
 		})
@@ -119,8 +125,8 @@ func TestGaugeConcurrency(t *testing.T) {
 
 		last := <-final
 
-		if last != gge.(*Value).val {
-			t.Fatalf("expected %f, got %f", last, gge.(*Value).val)
+		if last != gge.(*value).val {
+			t.Fatalf("expected %f, got %f", last, gge.(*value).val)
 			return false
 		}
 
@@ -152,7 +158,7 @@ func TestGaugeVecConcurrency(t *testing.T) {
 			close(done)
 		}()
 
-		gge := MustNewGauge(&Desc{
+		gge := NewGauge(GaugeOpts{
 			Name: "test_gauge",
 			Help: "no help can be found here",
 		})
@@ -177,8 +183,8 @@ func TestGaugeVecConcurrency(t *testing.T) {
 
 		last := <-final
 
-		if last != gge.(*Value).val {
-			t.Fatalf("expected %f, got %f", last, gge.(*Value).val)
+		if last != gge.(*value).val {
+			t.Fatalf("expected %f, got %f", last, gge.(*value).val)
 			return false
 		}
 

@@ -17,6 +17,8 @@ import (
 	dto "github.com/prometheus/client_model/go"
 )
 
+// TODO make this a real-world example. Also, take this as an example for a user-defined metric.
+
 func NewFancyMetric(desc *Desc) *FancyMetric {
 	result := &FancyMetric{desc: desc}
 	result.Init(result)
@@ -39,9 +41,10 @@ func (fm *FancyMetric) Write(*dto.Metric) {
 }
 
 func ExampleSelfCollector() {
-	fancyMetric := NewFancyMetric(&Desc{
-		Name: "fancy_metric",
-		Help: "A hell of a fancy metric.",
-	})
+	fancyMetric := NewFancyMetric(NewDesc(
+		"fancy_metric",
+		"A hell of a fancy metric.",
+		nil, nil,
+	))
 	MustRegister(fancyMetric)
 }

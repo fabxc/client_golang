@@ -18,10 +18,6 @@ import (
 	"hash/fnv"
 )
 
-var (
-	errCannotDecreaseCounter = errors.New("counter cannot decrease in value")
-)
-
 // Counter represents a numerical value that only ever goes up.
 type Counter interface {
 	Metric
@@ -40,36 +36,31 @@ type Counter interface {
 	Add(float64)
 }
 
+type CounterOpts Opts
+
 // NewCounter creates a new counter (without labels) based on the provided
 // descriptor.
-func NewCounter(desc *Desc) (Counter, error) {
-	if len(desc.VariableLabels) > 0 {
-		return nil, errLabelsForSimpleMetric
-	}
-	result := &counter{Value: Value{desc: desc}}
-	result.Init(result)
-	return result, nil
-}
-
-// MustNewCounter is a version of NewCounter that panics where NewCounter would
-// have returned an error.
-func MustNewCounter(desc *Desc) Counter {
-	c, err := NewCounter(desc)
-	if err != nil {
-		panic(err)
-	}
-	return c
+func NewCounter(opts CounterOpts) Counter {
+	desc := NewDesc(
+		BuildCanonName(opts.Namespace, opts.Subsystem, opts.Name),
+		opts.Help,
+		nil,
+		opts.ConstLabels,
+	)
+	result := &counter{value: value{desc: desc, valType: CounterValue}}
+	result.Init(result) // Init self-collection.
+	return result
 }
 
 type counter struct {
-	Value
+	value
 }
 
 func (c *counter) Add(v float64) {
 	if v < 0 {
-		panic(errCannotDecreaseCounter)
+		panic(errors.New("counter cannot decrease in value"))
 	}
-	c.Value.Add(v)
+	c.value.Add(v)
 }
 
 // CounterVec is a Collector that bundles a set of Counters that all
@@ -83,30 +74,29 @@ type CounterVec struct {
 
 // NewCounterVec returns a newly allocated CounterVec with the given Desc. It
 // will return an error if Desc does not contain at least one VariableLabel.
-func NewCounterVec(desc *Desc) (*CounterVec, error) {
-	if len(desc.VariableLabels) == 0 {
-		return nil, errNoLabelsForVecMetric
-	}
+func NewCounterVec(opts CounterOpts, labelNames []string) *CounterVec {
+	desc := NewDesc(
+		BuildCanonName(opts.Namespace, opts.Subsystem, opts.Name),
+		opts.Help,
+		labelNames,
+		opts.ConstLabels,
+	)
 	return &CounterVec{
 		MetricVec: MetricVec{
 			children: map[uint64]Metric{},
 			desc:     desc,
 			hash:     fnv.New64a(),
 			newMetric: func(lvs ...string) Metric {
-				return MustNewValue(desc, CounterValue, 0, lvs...)
+				result := &counter{value: value{
+					desc:      desc,
+					valType:   CounterValue,
+					labelVals: lvs,
+				}}
+				result.Init(result) // Init self-collection.
+				return result
 			},
 		},
-	}, nil
-}
-
-// MustNewCounterVec is a version of NewCounterVec that panics where NewCounterVec would
-// have returned an error.
-func MustNewCounterVec(desc *Desc) *CounterVec {
-	c, err := NewCounterVec(desc)
-	if err != nil {
-		panic(err)
 	}
-	return c
 }
 
 // GetMetricWithLabelValues returns the Counter for the given slice of label

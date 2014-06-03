@@ -27,52 +27,39 @@ type Untyped interface {
 	Sub(float64)
 }
 
-// NewUntyped emits a new Untyped metric from the provided descriptor.
-func NewUntyped(desc *Desc) (Untyped, error) {
-	if len(desc.VariableLabels) > 0 {
-		return nil, errLabelsForSimpleMetric
-	}
-	return NewValue(desc, UntypedValue, 0)
-}
+type UntypedOpts Opts
 
-// MustNewUntyped is a version of NewUntyped that panics where NewUntyped would
-// have returned an error.
-func MustNewUntyped(desc *Desc) Untyped {
-	u, err := NewUntyped(desc)
-	if err != nil {
-		panic(err)
-	}
-	return u
+// NewUntyped emits a new Untyped metric from the provided descriptor.
+func NewUntyped(opts UntypedOpts) Untyped {
+	return newValue(NewDesc(
+		BuildCanonName(opts.Namespace, opts.Subsystem, opts.Name),
+		opts.Help,
+		nil,
+		opts.ConstLabels,
+	), UntypedValue, 0)
 }
 
 type UntypedVec struct {
 	MetricVec
 }
 
-func NewUntypedVec(desc *Desc) (*UntypedVec, error) {
-	if len(desc.VariableLabels) == 0 {
-		return nil, errNoLabelsForVecMetric
-	}
+func NewUntypedVec(opts UntypedOpts, labelNames []string) *UntypedVec {
+	desc := NewDesc(
+		BuildCanonName(opts.Namespace, opts.Subsystem, opts.Name),
+		opts.Help,
+		labelNames,
+		opts.ConstLabels,
+	)
 	return &UntypedVec{
 		MetricVec: MetricVec{
 			children: map[uint64]Metric{},
 			desc:     desc,
 			hash:     fnv.New64a(),
 			newMetric: func(lvs ...string) Metric {
-				return MustNewValue(desc, UntypedValue, 0, lvs...)
+				return newValue(desc, UntypedValue, 0, lvs...)
 			},
 		},
-	}, nil
-}
-
-// MustNewUntypedVec is a version of NewUntypedVec that panics where
-// NewUntypedVec would have returned an error.
-func MustNewUntypedVec(desc *Desc) *UntypedVec {
-	u, err := NewUntypedVec(desc)
-	if err != nil {
-		panic(err)
 	}
-	return u
 }
 
 func (m *UntypedVec) GetMetricWithLabelValues(lvs ...string) (Untyped, error) {

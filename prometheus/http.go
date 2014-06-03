@@ -45,11 +45,12 @@ func nowSeries(t ...time.Time) nower {
 }
 
 func InstrumentHandler(path string, hnd http.Handler) http.HandlerFunc {
+	// TODO: This will probably create name collisions... discuss!
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		now := time.Now()
 
 		delegate := &responseWriterDelegator{ResponseWriter: w}
-		out := make(chan int, 1) // XXX
+		out := make(chan int, 1) // TODO: ???
 		go computeApproximateRequestSize(r, out)
 		hnd.ServeHTTP(delegate, r)
 
@@ -235,44 +236,40 @@ func sanitizeCode(s int) string {
 var (
 	instLabels = []string{"handler", "method", "code"}
 
-	reqCnt = MustNewCounterVec(&Desc{
-		Subsystem:      "http",
-		Name:           "requests_total",
-		Help:           "Total no. of HTTP requests made.",
-		VariableLabels: instLabels,
-	})
+	reqCnt = NewCounterVec(
+		CounterOpts{
+			Subsystem: "http",
+			Name:      "requests_total",
+			Help:      "Total no. of HTTP requests made.",
+		},
+		instLabels,
+	)
 
-	reqDur = MustNewSummaryVec(
-		&Desc{
+	reqDur = NewSummaryVec(
+		SummaryOpts{
 			Subsystem: "http",
 			Name:      "requests_duration_ms",
-
-			Help:           "The request latencies.",
-			VariableLabels: instLabels,
+			Help:      "The request latencies.",
 		},
-		&SummaryOptions{},
+		instLabels,
 	)
 
-	reqSz = MustNewSummaryVec(
-		&Desc{
+	reqSz = NewSummaryVec(
+		SummaryOpts{
 			Subsystem: "http",
 			Name:      "requests_size_bytes",
-
-			Help:           "The request sizes.",
-			VariableLabels: instLabels,
+			Help:      "The request sizes.",
 		},
-		&SummaryOptions{},
+		instLabels,
 	)
 
-	resSz = MustNewSummaryVec(
-		&Desc{
+	resSz = NewSummaryVec(
+		SummaryOpts{
 			Subsystem: "http",
 			Name:      "response_size_bytes",
-
-			Help:           "The response sizes.",
-			VariableLabels: instLabels,
+			Help:      "The response sizes.",
 		},
-		&SummaryOptions{},
+		instLabels,
 	)
 )
 

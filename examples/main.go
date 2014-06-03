@@ -17,6 +17,7 @@ import (
 	"log"
 	"net/http"
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -27,12 +28,10 @@ func main() {
 	///////////////////////////////////
 	// A summary with fancy options. //
 	///////////////////////////////////
-	summary := prometheus.MustNewSummary(
-		&prometheus.Desc{
+	summary := prometheus.NewSummary(
+		prometheus.SummaryOpts{
 			Name: "fancy_summary",
 			Help: "A summary to demonstrate the options.",
-		},
-		&prometheus.SummaryOptions{
 			Objectives: map[float64]float64{
 				0.3:   0.02,
 				0.8:   0.01,
@@ -44,40 +43,25 @@ func main() {
 	prometheus.MustRegister(summary)
 	summary.Observe(123.345)
 
-	// Same with the OP (a summary with labels would be again different):
-	// summary := prometheus.NewSummary(prometheus.SummaryDesc{
-	//         prometheus.Desc{
-	//                 Name: "fancy_summary",
-	//                 Help: "A summary to demonstrate the options.",
-	//         },
-	//         Objectives: map[float64]float64{
-	//                 0.3:   0.02,
-	//                 0.8:   0.01,
-	//                 0.999: 0.0001,
-	//         },
-	//         FlushInter: 5 * time.Minute,
-	// })
-	// prometheus.MustRegister(summary)
-
 	//////////////////////
 	// Expose memstats. //
 	//////////////////////
 	MemStatsDescriptors := []*prometheus.Desc{
-		&prometheus.Desc{
-			Subsystem: "memstats",
-			Name:      "alloc",
-			Help:      "bytes allocated and still in use",
-		},
-		&prometheus.Desc{
-			Subsystem: "memstats",
-			Name:      "total_alloc",
-			Help:      "bytes allocated (even if freed)",
-		},
-		&prometheus.Desc{
-			Subsystem: "memstats",
-			Name:      "num_gc",
-			Help:      "number of GCs run",
-		},
+		prometheus.NewDesc(
+			prometheus.BuildCanonName("", "memstats", "alloc"),
+			"bytes allocated and still in use",
+			nil, nil,
+		),
+		prometheus.NewDesc(
+			prometheus.BuildCanonName("", "memstats", "total_alloc"),
+			"bytes allocated (even if freed)",
+			nil, nil,
+		),
+		prometheus.NewDesc(
+			prometheus.BuildCanonName("", "memstats", "num_gc"),
+			"number of GCs run",
+			nil, nil,
+		),
 	}
 	prometheus.MustRegister(&MemStatsCollector{Descs: MemStatsDescriptors})
 
@@ -115,9 +99,10 @@ func (m *MemStatsCollector) Collect(ch chan<- prometheus.Metric) {
 }
 
 type ClusterManager struct {
-	Zone         string
-	OOMCountDesc *prometheus.Desc
-	RAMUsageDesc *prometheus.Desc
+	Zone     string
+	OOMCount *prometheus.CounterVec
+	RAMUsage *prometheus.GaugeVec
+	mtx      sync.Mutex // Protects OOMCount and RAMUsage.
 	// ... many more fields
 }
 
@@ -137,43 +122,56 @@ func (c *ClusterManager) ReallyExpensiveAssessmentOfTheSystemState() (
 }
 
 func (c *ClusterManager) Describe() []*prometheus.Desc {
-	return []*prometheus.Desc{c.OOMCountDesc, c.RAMUsageDesc}
+	result := make([]*prometheus.Desc, 0, 2)
+	result = append(result, c.OOMCount.Describe()...)
+	result = append(result, c.RAMUsage.Describe()...)
+	return result
 }
 
 func (c *ClusterManager) Collect(ch chan<- prometheus.Metric) {
-	// Create metrics from scratch each time because hosts that have gone
-	// away since the last scrape must not stay around.  If that's too much
-	// of a resource drain, keep the metrics around and reset them
-	// properly.
-	oomCountCounter := prometheus.MustNewCounterVec(c.OOMCountDesc)
-	ramUsageGauge := prometheus.MustNewGaugeVec(c.RAMUsageDesc)
 	oomCountByHost, ramUsageByHost := c.ReallyExpensiveAssessmentOfTheSystemState()
+	c.mtx.Lock()
+	defer c.mtx.Unlock()
+	c.OOMCount.Reset()
+	c.RAMUsage.Reset()
 	for host, oomCount := range oomCountByHost {
-		oomCountCounter.WithLabelValues(host).Set(float64(oomCount))
+		c.OOMCount.WithLabelValues(host).Set(float64(oomCount))
 	}
 	for host, ramUsage := range ramUsageByHost {
-		ramUsageGauge.WithLabelValues(host).Set(ramUsage)
+		c.RAMUsage.WithLabelValues(host).Set(ramUsage)
 	}
-	oomCountCounter.Collect(ch)
-	ramUsageGauge.Collect(ch)
+	c.OOMCount.Collect(ch)
+	c.RAMUsage.Collect(ch)
+	// Note about concurrency: Once we are here, all the Metric objects have
+	// been sent to the channel. Another Collect call could start before the
+	// metrics are actually sent out to the Prometheus server. The Reset
+	// calls above will not harm the collected metrics as they are only
+	// removed from the vector, but left intact. However, the value of a
+	// metric still being sent to the Prometheus server could be changed in
+	// the Set calls above. If that is undesired, new vector objects have to
+	// be created from scratch in each Collect call.
 }
 
 func NewClusterManager(zone string) *ClusterManager {
 	return &ClusterManager{
 		Zone: zone,
-		OOMCountDesc: &prometheus.Desc{
-			Subsystem:      "clustermanager",
-			Name:           "oom_count",
-			Help:           "number of OOM crashes",
-			ConstLabels:    prometheus.Labels{"zone": zone},
-			VariableLabels: []string{"host"},
-		},
-		RAMUsageDesc: &prometheus.Desc{
-			Subsystem:      "clustermanager",
-			Name:           "ram_usage",
-			Help:           "RAM usage in MiB as reported to the cluster manager",
-			ConstLabels:    prometheus.Labels{"zone": zone},
-			VariableLabels: []string{"host"},
-		},
+		OOMCount: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Subsystem:   "clustermanager",
+				Name:        "oom_count",
+				Help:        "number of OOM crashes",
+				ConstLabels: prometheus.Labels{"zone": zone},
+			},
+			[]string{"host"},
+		),
+		RAMUsage: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Subsystem:   "clustermanager",
+				Name:        "ram_usage",
+				Help:        "RAM usage in MiB as reported to the cluster manager",
+				ConstLabels: prometheus.Labels{"zone": zone},
+			},
+			[]string{"host"},
+		),
 	}
 }
