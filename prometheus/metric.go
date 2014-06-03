@@ -15,7 +15,6 @@ package prometheus
 
 import (
 	"bytes"
-	"encoding/binary"
 	"errors"
 	"hash/fnv"
 	"sort"
@@ -86,19 +85,15 @@ type Desc struct {
 	// maintains variable values.
 	VariableLabels []string
 
-	// The DTO type this metric will encode to (the zero value is
-	// MetricType_COUNTER).
-	Type dto.MetricType
-
 	// canonName is materialized from Namespace, Subsystem, and Name.
 	canonName string
 	// id is a hash of the values of the ConstLabels and canonName. This
 	// must be unique among all registered descriptors and can therefore be
 	// used as an identifier of the descriptor.
 	id uint64
-	// dimHash is a hash of the label names (preset and variable), the Type
-	// and the Help string. Each Desc with the same canonName must have the
-	// same dimHash.
+	// dimHash is a hash of the label names (preset and variable) and the
+	// Help string. Each Desc with the same canonName must have the same
+	// dimHash.
 	dimHash uint64
 	// constLabelPairs contains precalculated DTO label pairs based on
 	// ConstLabels.
@@ -187,10 +182,9 @@ func (d *Desc) build() error {
 	d.id = h.Sum64()
 	// Sort labelNames so that order doesn't matter for the hash.
 	sort.Strings(labelNames)
-	// Now hash together (in this order) the type, the help string, and the
-	// sorted label names.
+	// Now hash together (in this order) the help string and the sorted
+	// label names.
 	h.Reset()
-	binary.Write(h, binary.BigEndian, d.Type)
 	b.Reset()
 	b.WriteString(d.Help)
 	h.Write(b.Bytes())

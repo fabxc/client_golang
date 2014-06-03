@@ -19,8 +19,6 @@ import (
 	"runtime"
 	"time"
 
-	dto "github.com/prometheus/client_model/go"
-
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -69,19 +67,16 @@ func main() {
 			Subsystem: "memstats",
 			Name:      "alloc",
 			Help:      "bytes allocated and still in use",
-			Type:      dto.MetricType_GAUGE,
 		},
 		&prometheus.Desc{
 			Subsystem: "memstats",
 			Name:      "total_alloc",
 			Help:      "bytes allocated (even if freed)",
-			Type:      dto.MetricType_GAUGE,
 		},
 		&prometheus.Desc{
 			Subsystem: "memstats",
 			Name:      "num_gc",
 			Help:      "number of GCs run",
-			Type:      dto.MetricType_COUNTER,
 		},
 	}
 	prometheus.MustRegister(&MemStatsCollector{Descs: MemStatsDescriptors})
@@ -111,9 +106,9 @@ func (m *MemStatsCollector) Describe() []*prometheus.Desc {
 func (m *MemStatsCollector) Collect(ch chan<- prometheus.Metric) {
 	var ms runtime.MemStats
 	runtime.ReadMemStats(&ms)
-	ch <- prometheus.MustNewConstMetric(m.Descs[0], float64(ms.Alloc))
-	ch <- prometheus.MustNewConstMetric(m.Descs[1], float64(ms.TotalAlloc))
-	ch <- prometheus.MustNewConstMetric(m.Descs[2], float64(ms.NumGC))
+	ch <- prometheus.MustNewConstMetric(m.Descs[0], prometheus.GaugeValue, float64(ms.Alloc))
+	ch <- prometheus.MustNewConstMetric(m.Descs[1], prometheus.GaugeValue, float64(ms.TotalAlloc))
+	ch <- prometheus.MustNewConstMetric(m.Descs[2], prometheus.CounterValue, float64(ms.NumGC))
 	// To avoid new allocations each scrape, you could also keep metric
 	// objects around and return the same objects each time, just with new
 	// values set.

@@ -16,9 +16,6 @@ package prometheus
 import (
 	"encoding/json"
 	"expvar"
-	"fmt"
-
-	dto "github.com/prometheus/client_model/go"
 )
 
 // ExpvarCollector collects metrics from the expvar interface. It provides a
@@ -41,8 +38,8 @@ type ExpvarCollector struct {
 // The keys in the map correspond to expvar keys, i.e. for every expvar key you
 // want to export as Prometheus metric, you need an entry in the exports
 // map. The descriptor mapped to each key describes how to export the expvar
-// value. It defines name, help string, and type of the Prometheus metric
-// proxying the expvar value. The type can be anything but a summary.
+// value. It defines the name and the help string of the Prometheus metric
+// proxying the expvar value. The type will always be Untyped.
 //
 // For descriptors without variable labels, the expvar value must be a number or
 // a bool. The number is then directly exported as the Prometheus sample
@@ -59,28 +56,15 @@ type ExpvarCollector struct {
 // etc. until a depth is reached that corresponds to the number of labels. The
 // leaves of that structure must be numbers or bools as above to serve as the
 // sample values.
-func NewExpvarCollector(exports map[string]*Desc) (*ExpvarCollector, error) {
+func NewExpvarCollector(exports map[string]*Desc) *ExpvarCollector {
 	descs := make([]*Desc, 0, len(exports))
 	for _, desc := range exports {
-		if desc.Type == dto.MetricType_SUMMARY {
-			return nil, fmt.Errorf("descriptor %+v contains type summary", desc)
-		}
 		descs = append(descs, desc)
 	}
 	return &ExpvarCollector{
 		exports: exports,
 		descs:   descs,
-	}, nil
-}
-
-// MustNewExpvarCollector is a version of NewExpvarCollector that panics where
-// NewExpvarCollector would have returned an error.
-func MustNewExpvarCollector(exports map[string]*Desc) *ExpvarCollector {
-	e, err := NewExpvarCollector(exports)
-	if err != nil {
-		panic(err)
 	}
-	return e
 }
 
 // Describe implements Collector.
@@ -106,12 +90,12 @@ func (e *ExpvarCollector) Collect(ch chan<- Metric) {
 					copiedLabels := append(make([]string, 0, len(labels)), labels...)
 					switch v := v.(type) {
 					case float64:
-						m = MustNewConstMetric(desc, v, copiedLabels...)
+						m = MustNewConstMetric(desc, UntypedValue, v, copiedLabels...)
 					case bool:
 						if v {
-							m = MustNewConstMetric(desc, 1, copiedLabels...)
+							m = MustNewConstMetric(desc, UntypedValue, 1, copiedLabels...)
 						} else {
-							m = MustNewConstMetric(desc, 0, copiedLabels...)
+							m = MustNewConstMetric(desc, UntypedValue, 0, copiedLabels...)
 						}
 					default:
 						return

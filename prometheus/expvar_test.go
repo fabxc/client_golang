@@ -23,22 +23,19 @@ import (
 )
 
 func ExampleExpvarCollector() {
-	expvarCollector := MustNewExpvarCollector(map[string]*Desc{
+	expvarCollector := NewExpvarCollector(map[string]*Desc{
 		"memstats": &Desc{
 			Name:           "expvar_memstats",
 			Help:           "All numeric memstats as one metric family. Not a good role-model, actually... ;-)",
-			Type:           dto.MetricType_UNTYPED, // To not imply this mash-up has any meaning...
 			VariableLabels: []string{"type"},
 		},
 		"lone-int": &Desc{
 			Name: "expvar_lone_int",
 			Help: "Just an expvar int as an example.",
-			Type: dto.MetricType_GAUGE,
 		},
 		"http-request-map": &Desc{
 			Name:           "http_requests",
 			Help:           "How many http requests processed, partitioned by status code and http method.",
-			Type:           dto.MetricType_COUNTER,
 			VariableLabels: []string{"code", "method"},
 		},
 	})
@@ -90,9 +87,9 @@ func ExampleExpvarCollector() {
 		fmt.Println(strings.TrimRight(s, " "))
 	}
 	// Output:
-	// gauge:<value:42 >
-	// label:<name:"code" value:"200" > label:<name:"method" value:"GET" > counter:<value:212 >
-	// label:<name:"code" value:"200" > label:<name:"method" value:"POST" > counter:<value:11 >
-	// label:<name:"code" value:"404" > label:<name:"method" value:"GET" > counter:<value:13 >
-	// label:<name:"code" value:"404" > label:<name:"method" value:"POST" > counter:<value:3 >
+	// label:<name:"code" value:"200" > label:<name:"method" value:"GET" > untyped:<value:212 >
+	// label:<name:"code" value:"200" > label:<name:"method" value:"POST" > untyped:<value:11 >
+	// label:<name:"code" value:"404" > label:<name:"method" value:"GET" > untyped:<value:13 >
+	// label:<name:"code" value:"404" > label:<name:"method" value:"POST" > untyped:<value:3 >
+	// untyped:<value:42 >
 }

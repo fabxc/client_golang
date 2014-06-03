@@ -13,11 +13,7 @@
 
 package prometheus
 
-import (
-	"hash/fnv"
-
-	dto "github.com/prometheus/client_model/go"
-)
+import "hash/fnv"
 
 // Untyped proxies an untyped scalar value.
 type Untyped interface {
@@ -32,13 +28,11 @@ type Untyped interface {
 }
 
 // NewUntyped emits a new Untyped metric from the provided descriptor.
-// The descriptor's Type field is ignored and forcefully set to MetricType_UNTYPED.
 func NewUntyped(desc *Desc) (Untyped, error) {
 	if len(desc.VariableLabels) > 0 {
 		return nil, errLabelsForSimpleMetric
 	}
-	desc.Type = dto.MetricType_UNTYPED
-	return NewValue(desc, 0)
+	return NewValue(desc, UntypedValue, 0)
 }
 
 // MustNewUntyped is a version of NewUntyped that panics where NewUntyped would
@@ -59,12 +53,14 @@ func NewUntypedVec(desc *Desc) (*UntypedVec, error) {
 	if len(desc.VariableLabels) == 0 {
 		return nil, errNoLabelsForVecMetric
 	}
-	desc.Type = dto.MetricType_UNTYPED
 	return &UntypedVec{
 		MetricVec: MetricVec{
 			children: map[uint64]Metric{},
 			desc:     desc,
 			hash:     fnv.New64a(),
+			newMetric: func(lvs ...string) Metric {
+				return MustNewValue(desc, UntypedValue, 0, lvs...)
+			},
 		},
 	}, nil
 }

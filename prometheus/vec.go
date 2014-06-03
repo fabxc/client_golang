@@ -18,8 +18,6 @@ import (
 	"fmt"
 	"hash"
 	"sync"
-
-	dto "github.com/prometheus/client_model/go"
 )
 
 // MetricVec is a Collector to bundle metrics of the same name that
@@ -38,7 +36,7 @@ type MetricVec struct {
 	// again to avoid allocations.
 	buf bytes.Buffer
 
-	opts *SummaryOptions // Only needed for summaries.
+	newMetric func(labelValues ...string) Metric
 }
 
 // Describe implements Collector. The length of the returned slice
@@ -177,19 +175,12 @@ func (m *MetricVec) hashLabels(labels Labels) (uint64, error) {
 }
 
 func (m *MetricVec) getOrCreateMetric(hash uint64, labelValues ...string) Metric {
-	var err error
 	metric, ok := m.children[hash]
 	if !ok {
-		// Copy labelValues so they don't have to be allocated even if we don't go
+		// Copy labelValues. Otherwise, they would be allocated even if we don't go
 		// down this code path.
 		copiedLabelValues := append(make([]string, 0, len(labelValues)), labelValues...)
-		if m.desc.Type == dto.MetricType_SUMMARY {
-			if metric, err = newSummary(m.desc, m.opts, copiedLabelValues...); err != nil {
-				panic(err) // Cannot happen.
-			}
-		} else {
-			metric = MustNewValue(m.desc, 0, copiedLabelValues...)
-		}
+		metric = m.newMetric(copiedLabelValues...)
 		m.children[hash] = metric
 	}
 	return metric

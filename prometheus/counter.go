@@ -16,8 +16,6 @@ package prometheus
 import (
 	"errors"
 	"hash/fnv"
-
-	dto "github.com/prometheus/client_model/go"
 )
 
 var (
@@ -43,13 +41,11 @@ type Counter interface {
 }
 
 // NewCounter creates a new counter (without labels) based on the provided
-// descriptor. The Type field in the descriptor is ignored and forcefully set to
-// MetricType_COUNTER.
+// descriptor.
 func NewCounter(desc *Desc) (Counter, error) {
 	if len(desc.VariableLabels) > 0 {
 		return nil, errLabelsForSimpleMetric
 	}
-	desc.Type = dto.MetricType_COUNTER
 	result := &counter{Value: Value{desc: desc}}
 	result.Init(result)
 	return result, nil
@@ -91,12 +87,14 @@ func NewCounterVec(desc *Desc) (*CounterVec, error) {
 	if len(desc.VariableLabels) == 0 {
 		return nil, errNoLabelsForVecMetric
 	}
-	desc.Type = dto.MetricType_COUNTER
 	return &CounterVec{
 		MetricVec: MetricVec{
 			children: map[uint64]Metric{},
 			desc:     desc,
 			hash:     fnv.New64a(),
+			newMetric: func(lvs ...string) Metric {
+				return MustNewValue(desc, CounterValue, 0, lvs...)
+			},
 		},
 	}, nil
 }

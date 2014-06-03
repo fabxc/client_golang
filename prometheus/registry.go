@@ -239,7 +239,6 @@ func buildDescsAndCalculateCollectorID(descs []*Desc) (uint64, error) {
 	return h.Sum64(), nil
 }
 
-// TODO: Consider a way to give access to non-default registries.
 func newRegistry() *registry {
 	return &registry{
 		collectorsByID:   map[uint64]Collector{},
@@ -253,8 +252,7 @@ func newRegistry() *registry {
 
 var defRegistry = newRegistry()
 
-// Handler is the default Prometheus http.HandlerFunc for the global metric
-// registry.
+// Handler is the Prometheus http.HandlerFunc for the global metric registry.
 var Handler = InstrumentHandler("prometheus", defRegistry)
 
 // Register enrolls a new metrics collector.  It returns an error if the
@@ -383,12 +381,26 @@ func (r *registry) writePB(w io.Writer, writeEncoded encoder) (int, error) {
 			defer r.giveMetricFamily(metricFamily)
 			metricFamily.Name = proto.String(desc.canonName)
 			metricFamily.Help = proto.String(desc.Help)
-			metricFamily.Type = desc.Type.Enum()
 			metricFamiliesByName[desc.canonName] = metricFamily
 		}
 		dtoMetric := r.getMetric()
 		defer r.giveMetric(dtoMetric)
 		metric.Write(dtoMetric)
+		switch {
+		case metricFamily.Type != nil:
+			// Type already set. We are good.
+		case dtoMetric.Gauge != nil:
+			metricFamily.Type = dto.MetricType_GAUGE.Enum()
+		case dtoMetric.Counter != nil:
+			metricFamily.Type = dto.MetricType_COUNTER.Enum()
+		case dtoMetric.Summary != nil:
+			metricFamily.Type = dto.MetricType_SUMMARY.Enum()
+		case dtoMetric.Untyped != nil:
+			metricFamily.Type = dto.MetricType_UNTYPED.Enum()
+		default:
+			panic(fmt.Errorf("empty metric: %v", *dtoMetric))
+		}
+		// TODO: Configurable check if metric type is consistent.
 		// TODO: Configurable check if dtoMetric is consistent with desc.
 		metricFamily.Metric = append(metricFamily.Metric, dtoMetric)
 	}

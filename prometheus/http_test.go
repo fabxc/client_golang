@@ -58,9 +58,9 @@ func TestInstrumentHandler(t *testing.T) {
 	end := instant.Add(30 * time.Second)
 	now = nowSeries(instant, end)
 	reqCnt = MustNewCounterVec(reqCnt.desc)
-	reqDur = MustNewSummaryVec(reqDur.desc, reqDur.opts)
-	reqSz = MustNewSummaryVec(reqSz.desc, reqSz.opts)
-	resSz = MustNewSummaryVec(resSz.desc, resSz.opts)
+	reqDur = MustNewSummaryVec(reqDur.desc, &SummaryOptions{})
+	reqSz = MustNewSummaryVec(reqSz.desc, &SummaryOptions{})
+	resSz = MustNewSummaryVec(resSz.desc, &SummaryOptions{})
 
 	respBody := respBody("Howdy there!")
 

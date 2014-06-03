@@ -77,7 +77,6 @@ type SummaryOptions struct {
 }
 
 // NewSummary generates a new Summary from the provided descriptor and options.
-// The descriptor's Type field is ignored and forcefully set to MetricType_SUMMARY.
 func NewSummary(desc *Desc, opts *SummaryOptions) (Summary, error) {
 	if len(desc.VariableLabels) > 0 {
 		return nil, errLabelsForSimpleMetric
@@ -99,7 +98,6 @@ func newSummary(desc *Desc, opts *SummaryOptions, labelValues ...string) (Summar
 	if len(desc.VariableLabels) != len(labelValues) {
 		return nil, errInconsistentCardinality
 	}
-	desc.Type = dto.MetricType_SUMMARY
 
 	if opts.BufCap < 0 {
 		return nil, errIllegalCapDesc
@@ -303,13 +301,18 @@ func NewSummaryVec(desc *Desc, opts *SummaryOptions) (*SummaryVec, error) {
 	if len(desc.VariableLabels) == 0 {
 		return nil, errNoLabelsForVecMetric
 	}
-	desc.Type = dto.MetricType_SUMMARY
 	return &SummaryVec{
 		MetricVec: MetricVec{
 			children: map[uint64]Metric{},
 			desc:     desc,
 			hash:     fnv.New64a(),
-			opts:     opts,
+			newMetric: func(lvs ...string) Metric {
+				metric, err := newSummary(desc, opts, lvs...)
+				if err != nil {
+					panic(err) // Cannot happen.
+				}
+				return metric
+			},
 		},
 	}, nil
 }

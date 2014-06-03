@@ -24,6 +24,18 @@ import (
 	"code.google.com/p/goprotobuf/proto"
 )
 
+// ValueType is an enumeration of metric types supported by Value and
+// ConstMetric.
+type ValueType int
+
+const (
+	// Possible values for ValueType.
+	_ ValueType = iota
+	CounterValue
+	GaugeValue
+	UntypedValue
+)
+
 var (
 	errDescriptorNotRegistered             = errors.New("descriptor not registered")
 	errSummaryInConstMetric                = errors.New("const metric not possible for summary")
@@ -31,37 +43,43 @@ var (
 	errInconsistentLengthDescriptorsValues = errors.New("descriptor and value slice have inconsistent length")
 )
 
-// Value is a generic metric for simple values. Its effective type can be
-// MetricType_UNTYPED, MetricType_GAUGE, or MetricType_COUNTER and is determined
-// by its descriptor. It implements Metric, Collector, Counter, Gauge,
-// and Untyped.
+// Value is a generic metric for simple values. It implements Metric, Collector,
+// Counter, Gauge, and Untyped. Its effective type is determined by
+// ValueType. This is a low-level building block used by the library to back the
+// implementations of Counter, Gauge, and Untyped. As a user of the library, you
+// will not need Value for regular operations, but you might find it useful to
+// implement your own Metric or Collector.
 type Value struct {
 	SelfCollector
 
-	mtx         sync.RWMutex
-	desc        *Desc
-	labelValues []string
-	val         float64
+	mtx       sync.RWMutex
+	desc      *Desc
+	valType   ValueType
+	val       float64
+	labelVals []string
 }
 
-// NewValue returns a newly allocated ValueMetric. It returns an error if the
-// type in desc is a summary.
-func NewValue(desc *Desc, val float64, labelValues ...string) (*Value, error) {
-	if desc.Type == dto.MetricType_SUMMARY {
-		return nil, errSummaryInValueMetric
-	}
+// NewValue returns a newly allocated Value with the given Desc, ValueType,
+// sample value and label values. It returns an error if the number of label
+// values is different from the number of variable labels in Desc.
+func NewValue(desc *Desc, valueType ValueType, value float64, labelValues ...string) (*Value, error) {
 	if len(labelValues) != len(desc.VariableLabels) {
 		return nil, errInconsistentCardinality
 	}
-	result := &Value{desc: desc, labelValues: labelValues, val: val}
+	result := &Value{
+		desc:      desc,
+		valType:   valueType,
+		val:       value,
+		labelVals: labelValues,
+	}
 	result.Init(result)
 	return result, nil
 }
 
 // MustNewValue is a version of NewValue that panics where NewValue would
 // have returned an error.
-func MustNewValue(desc *Desc, val float64, labelValues ...string) *Value {
-	v, err := NewValue(desc, val, labelValues...)
+func MustNewValue(desc *Desc, valueType ValueType, value float64, labelValues ...string) *Value {
+	v, err := NewValue(desc, valueType, value, labelValues...)
 	if err != nil {
 		panic(err)
 	}
@@ -103,11 +121,55 @@ func (v *Value) Write(out *dto.Metric) {
 	val := v.val
 	v.mtx.RUnlock()
 
-	populateMetric(v.desc, val, v.labelValues, out)
+	populateMetric(v.desc, v.valType, val, v.labelVals, out)
+}
+
+// NewConstMetric returns a metric with one fixed value that cannot be
+// changed. A user of the library will not have much use for it in regular
+// operations. However, when implementing custom Collectors, it is useful as a
+// throw-away metric that is generated on the fly to send it to Prometheus in
+// the Collect method. NewConstMetric returns an error if the length of
+// labelValues is not consistent with the variable labels in Desc.
+func NewConstMetric(desc *Desc, valueType ValueType, value float64, labelValues ...string) (Metric, error) {
+	if len(desc.VariableLabels) != len(labelValues) {
+		return nil, errInconsistentCardinality
+	}
+	return &constMetric{
+		desc:        desc,
+		valType:     valueType,
+		val:         value,
+		labelValues: labelValues,
+	}, nil
+}
+
+// MustNewConstMetric is a version of NewConstMetric that panics where
+// NewConstMetric would have returned an error.
+func MustNewConstMetric(desc *Desc, valueType ValueType, value float64, labelValues ...string) Metric {
+	m, err := NewConstMetric(desc, valueType, value, labelValues...)
+	if err != nil {
+		panic(err)
+	}
+	return m
+}
+
+type constMetric struct {
+	desc        *Desc
+	valType     ValueType
+	val         float64
+	labelValues []string
+}
+
+func (m *constMetric) Desc() *Desc {
+	return m.desc
+}
+
+func (m *constMetric) Write(out *dto.Metric) {
+	populateMetric(m.desc, m.valType, m.val, m.labelValues, out)
 }
 
 func populateMetric(
 	d *Desc,
+	t ValueType,
 	v float64,
 	labelValues []string,
 	m *dto.Metric,
@@ -122,56 +184,14 @@ func populateMetric(
 	}
 	sort.Sort(LabelPairSorter(labels))
 	m.Label = labels
-	switch d.Type {
-	case dto.MetricType_COUNTER:
+	switch t {
+	case CounterValue:
 		m.Counter = &dto.Counter{Value: proto.Float64(v)}
-	case dto.MetricType_GAUGE:
+	case GaugeValue:
 		m.Gauge = &dto.Gauge{Value: proto.Float64(v)}
-	case dto.MetricType_UNTYPED:
+	case UntypedValue:
 		m.Untyped = &dto.Untyped{Value: proto.Float64(v)}
 	default:
-		panic(fmt.Errorf("encountered unknown type %v", d.Type))
+		panic(fmt.Errorf("encountered unknown type %v", t))
 	}
-}
-
-// NewConstMetric returns a metric with one fixed value that cannot be
-// changed. It is well suited for throw-away metrics that are just generated to
-// hand a value over to Prometheus (usually in a Collect method).  The
-// descriptor must have been registered with Prometheus before. Its Type field
-// must not be MetricType_SUMMARY.
-func NewConstMetric(desc *Desc, v float64, labelValues ...string) (Metric, error) {
-	if desc.canonName == "" {
-		return nil, errDescriptorNotRegistered
-	}
-	if desc.Type == dto.MetricType_SUMMARY {
-		return nil, errSummaryInConstMetric
-	}
-	if len(desc.VariableLabels) != len(labelValues) {
-		return nil, errInconsistentCardinality
-	}
-	return &constMetric{val: v, desc: desc, labelValues: labelValues}, nil
-}
-
-// MustNewConstMetric is a version of NewConstMetric that panics where
-// NewConstMetric would have returned an error.
-func MustNewConstMetric(desc *Desc, val float64, labelValues ...string) Metric {
-	m, err := NewConstMetric(desc, val, labelValues...)
-	if err != nil {
-		panic(err)
-	}
-	return m
-}
-
-type constMetric struct {
-	val         float64
-	desc        *Desc
-	labelValues []string
-}
-
-func (s *constMetric) Desc() *Desc {
-	return s.desc
-}
-
-func (s *constMetric) Write(out *dto.Metric) {
-	populateMetric(s.desc, s.val, s.labelValues, out)
 }

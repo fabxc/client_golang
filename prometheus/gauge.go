@@ -13,11 +13,7 @@
 
 package prometheus
 
-import (
-	"hash/fnv"
-
-	dto "github.com/prometheus/client_model/go"
-)
+import "hash/fnv"
 
 // Gauge proxies a scalar value.
 type Gauge interface {
@@ -32,13 +28,11 @@ type Gauge interface {
 }
 
 // NewGauge emits a new Gauge from the provided descriptor.
-// The descriptor's Type field is ignored and forcefully set to MetricType_GAUGE.
 func NewGauge(desc *Desc) (Gauge, error) {
 	if len(desc.VariableLabels) > 0 {
 		return nil, errLabelsForSimpleMetric
 	}
-	desc.Type = dto.MetricType_GAUGE
-	return NewValue(desc, 0)
+	return NewValue(desc, GaugeValue, 0)
 }
 
 // MustNewGauge is a version of NewGauge that panics where NewGauge would
@@ -59,12 +53,14 @@ func NewGaugeVec(desc *Desc) (*GaugeVec, error) {
 	if len(desc.VariableLabels) == 0 {
 		return nil, errNoLabelsForVecMetric
 	}
-	desc.Type = dto.MetricType_GAUGE
 	return &GaugeVec{
 		MetricVec: MetricVec{
 			children: map[uint64]Metric{},
 			desc:     desc,
 			hash:     fnv.New64a(),
+			newMetric: func(lvs ...string) Metric {
+				return MustNewValue(desc, GaugeValue, 0, lvs...)
+			},
 		},
 	}, nil
 }
