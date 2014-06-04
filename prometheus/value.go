@@ -35,12 +35,7 @@ const (
 	UntypedValue
 )
 
-var (
-	errDescriptorNotRegistered             = errors.New("descriptor not registered")
-	errSummaryInConstMetric                = errors.New("const metric not possible for summary")
-	errSummaryInValueMetric                = errors.New("value metric not possible for summary")
-	errInconsistentLengthDescriptorsValues = errors.New("descriptor and value slice have inconsistent length")
-)
+var errInconsistentCardinality = errors.New("inconsistent label cardinality")
 
 // value is a generic metric for simple values. It implements Metric, Collector,
 // Counter, Gauge, and Untyped. Its effective type is determined by

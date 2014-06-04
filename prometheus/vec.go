@@ -41,8 +41,8 @@ type MetricVec struct {
 
 // Describe implements Collector. The length of the returned slice
 // is always one.
-func (m *MetricVec) Describe() []*Desc {
-	return []*Desc{m.desc}
+func (m *MetricVec) Describe(ch chan<- *Desc) {
+	ch <- m.desc
 }
 
 // Collect implements Collector.

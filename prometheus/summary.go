@@ -14,7 +14,7 @@
 package prometheus
 
 import (
-	"errors"
+	"fmt"
 	"hash/fnv"
 	"sort"
 	"sync"
@@ -47,7 +47,6 @@ var (
 		0.90: 0.01,
 		0.99: 0.001,
 	}
-	errIllegalCapDesc = errors.New("illegal buffer capacity")
 )
 
 const (
@@ -112,7 +111,7 @@ func newSummary(desc *Desc, opts SummaryOpts, labelValues ...string) Summary {
 
 	switch {
 	case opts.BufCap < 0:
-		panic(errIllegalCapDesc)
+		panic(fmt.Errorf("illegal buffer capacity BufCap=%d", opts.BufCap))
 	case opts.BufCap == 0:
 		opts.BufCap = DefBufCap
 	default:

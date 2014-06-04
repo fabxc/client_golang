@@ -19,8 +19,6 @@ import (
 var (
 	metricNameRE = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_:]*$`)
 	labelNameRE  = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
-
-	errInconsistentCardinality = errors.New("inconsistent label cardinality")
 )
 
 // Labels represents a collection of label name -> value mappings.

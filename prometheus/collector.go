@@ -22,12 +22,12 @@ package prometheus
 // library are the multi-dimensional metrics (i.e. metrics with variable lables)
 // like GaugeVec or SummaryVec and the ExpvarCollector.
 type Collector interface {
-	// Describe returns the super-set of all possible descriptors of
-	// metrics collected by this Collector. The returned descriptors
-	// fulfill the consistency and uniqueness requirements described in the
-	// Desc documentation. This method idempotently returns the same
-	// descriptors throughout the lifetime of the Metric.
-	Describe() []*Desc
+	// Describe sends the super-set of all possible descriptors of metrics
+	// collected by this Collector to the provided channel. The sent
+	// descriptors fulfill the consistency and uniqueness requirements
+	// described in the Desc documentation. This method idempotently returns
+	// the same descriptors throughout the lifetime of the Metric.
+	Describe(chan<- *Desc)
 	// Collect is called by Prometheus when collecting metrics. The
 	// implementation sends each collected metric via the provided channel
 	// and returns once the last metric has been sent. The descriptor of
@@ -36,7 +36,7 @@ type Collector interface {
 	// label values. This method may be called concurrently and must
 	// therefore be implemented in a concurrency safe way. Blocking occurs
 	// at the expense of total performance of rendering all registered
-	// metrics.  Ideally Collector implementations should support concurrent
+	// metrics. Ideally Collector implementations should support concurrent
 	// readers.
 	Collect(chan<- Metric)
 }
@@ -45,8 +45,7 @@ type Collector interface {
 // metric collects itself. Add it as an anonymous field to a struct that
 // implements Metric, and call Init with the metric itself as an argument.
 type SelfCollector struct {
-	self  Metric
-	descs []*Desc
+	self Metric
 }
 
 // Init provides the SelfCollector with a reference to the metric it is supposed
@@ -54,12 +53,11 @@ type SelfCollector struct {
 // metric. See example.
 func (c *SelfCollector) Init(self Metric) {
 	c.self = self
-	c.descs = []*Desc{self.Desc()}
 }
 
 // Describe implements Collector.
-func (c *SelfCollector) Describe() []*Desc {
-	return c.descs
+func (c *SelfCollector) Describe(ch chan<- *Desc) {
+	ch <- c.self.Desc()
 }
 
 // Collect implements Collector.

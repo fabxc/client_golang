@@ -83,8 +83,10 @@ type MemStatsCollector struct {
 	Descs []*prometheus.Desc
 }
 
-func (m *MemStatsCollector) Describe() []*prometheus.Desc {
-	return m.Descs
+func (m *MemStatsCollector) Describe(ch chan<- *prometheus.Desc) {
+	for _, desc := range m.Descs {
+		ch <- desc
+	}
 }
 
 func (m *MemStatsCollector) Collect(ch chan<- prometheus.Metric) {
@@ -121,11 +123,9 @@ func (c *ClusterManager) ReallyExpensiveAssessmentOfTheSystemState() (
 	return
 }
 
-func (c *ClusterManager) Describe() []*prometheus.Desc {
-	result := make([]*prometheus.Desc, 0, 2)
-	result = append(result, c.OOMCount.Describe()...)
-	result = append(result, c.RAMUsage.Describe()...)
-	return result
+func (c *ClusterManager) Describe(ch chan<- *prometheus.Desc) {
+	c.OOMCount.Describe(ch)
+	c.RAMUsage.Describe(ch)
 }
 
 func (c *ClusterManager) Collect(ch chan<- prometheus.Metric) {

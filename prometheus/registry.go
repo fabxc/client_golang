@@ -40,7 +40,6 @@ import (
 
 var (
 	errAlreadyReg = errors.New("duplicate metrics collector registration attempted")
-	errNoDesc     = errors.New("metric collector has no metric descriptors")
 )
 
 const (
@@ -49,8 +48,9 @@ const (
 	numMetricFamilies = 1000
 	numMetrics        = 10000
 
-	// Capacity for the channel to collect metrics.
+	// Capacity for the channel to collect metrics and descriptorn.
 	capMetricChan = 1000
+	capDescChan   = 10
 
 	contentTypeHeader = "Content-Type"
 
@@ -92,46 +92,69 @@ type registry struct {
 }
 
 func (r *registry) Register(c Collector) (Collector, error) {
-	descs := c.Describe()
-	err := checkDescs(descs)
-	if err != nil {
-		return c, err
-	}
-	collectorID := calculateCollectorID(descs)
+	descChan := make(chan *Desc, capDescChan)
+	go func() {
+		c.Describe(descChan)
+		close(descChan)
+	}()
+
+	newDescIDs := map[uint64]struct{}{}
+	newDimHashesByName := map[string]uint64{}
+	collectorIDHash := fnv.New64a()
+	buf := make([]byte, 8)
 
 	r.mtx.Lock()
 	defer r.mtx.Unlock()
+	// Coduct various tests...
+	for desc := range descChan {
 
+		// Is the descriptor valid at all?
+		if desc.err != nil {
+			return c, fmt.Errorf("descriptor %s is invalid: %s", desc, desc.err)
+		}
+
+		// Is the descID unique?
+		// (In other words: Is the canonName + constLabel combination unique?)
+		// First compare to existing descIDs...
+		if _, exists := r.descIDs[desc.id]; exists {
+			return nil, fmt.Errorf("descriptor %s already exists with the same fully-qualified name and const label values", desc)
+		}
+		// ...then to the new descIDs already seen.
+		if _, exists := newDescIDs[desc.id]; exists {
+			return nil, fmt.Errorf("metrics collector has two descriptors with the same fully-qualified name and preset label values, offender is %s", desc)
+		}
+		// Uniqueness established. Remember this guy...
+		newDescIDs[desc.id] = struct{}{}
+		binary.BigEndian.PutUint64(buf, desc.id)
+		collectorIDHash.Write(buf)
+
+		// Are all the label names and the help string consistent with
+		// previous descriptors with the same name?
+		// Again first check existing descriptors...
+		if dimHash, exists := r.dimHashesByName[desc.canonName]; exists {
+			if dimHash != desc.dimHash {
+				return nil, fmt.Errorf("a previously registered descriptor with the same fully qualified name as %s has different label names or a different help string", desc)
+			}
+		} else {
+			// ...then check the new descriptors already seen.
+			if dimHash, exists := newDimHashesByName[desc.canonName]; exists {
+				if dimHash != desc.dimHash {
+					return nil, fmt.Errorf("descriptors reported by collector have inconsistent label names or help strings for the same fully-qualified name, offender is %s", desc)
+				}
+			} else {
+				newDimHashesByName[desc.canonName] = desc.dimHash
+			}
+		}
+	}
+	// Did anything happen at all?
+	if len(newDescIDs) == 0 {
+		return nil, errors.New("collector has no descriptors")
+	}
+	collectorID := collectorIDHash.Sum64()
 	if existing, exists := r.collectorsByID[collectorID]; exists {
 		return existing, errAlreadyReg
 	}
 
-	// Test consistency and uniqueness.
-	newDescIDs := map[uint64]struct{}{}
-	newDimHashesByName := map[string]uint64{}
-	for _, desc := range descs {
-		// descID uniqueness, i.e. canonName and preset label values.
-		if _, exists := r.descIDs[desc.id]; exists {
-			return nil, fmt.Errorf("descriptor %s already exists with the same fully-qualified name and const label values", desc)
-		}
-		if _, exists := newDescIDs[desc.id]; exists {
-			return nil, fmt.Errorf("metrics collector has two descriptors with the same fully-qualified name and preset label values, offender is %s", desc)
-		}
-		newDescIDs[desc.id] = struct{}{}
-		// Dimension consistency, i.e. label names and help.
-		if dimHash, exists := r.dimHashesByName[desc.canonName]; exists {
-			if dimHash != desc.dimHash {
-				return nil, fmt.Errorf("previously registered descriptors with the same fully qualified name as %s have different label names or help string", desc)
-			}
-		} else {
-			if dimHash, exists := newDimHashesByName[desc.canonName]; exists {
-				if dimHash != desc.dimHash {
-					return nil, fmt.Errorf("metrics collector has inconsistent label names or help string for the same fully-qualified name, offender is %s", desc)
-				}
-			}
-			newDimHashesByName[desc.canonName] = desc.dimHash
-		}
-	}
 	// Only after all tests have passed, actually register.
 	r.collectorsByID[collectorID] = c
 	for hash := range newDescIDs {
@@ -151,9 +174,22 @@ func (r *registry) RegisterOrGet(m Collector) (Collector, error) {
 	return existing, nil
 }
 
-func (r *registry) Unregister(m Collector) bool {
-	descs := m.Describe()
-	collectorID := calculateCollectorID(descs)
+func (r *registry) Unregister(c Collector) bool {
+	descChan := make(chan *Desc, capDescChan)
+	go func() {
+		c.Describe(descChan)
+		close(descChan)
+	}()
+
+	descs := []*Desc{}
+	collectorIDHash := fnv.New64a()
+	buf := make([]byte, 8)
+	for desc := range descChan {
+		binary.BigEndian.PutUint64(buf, desc.id)
+		collectorIDHash.Write(buf)
+		descs = append(descs, desc)
+	}
+	collectorID := collectorIDHash.Sum64()
 
 	r.mtx.RLock()
 	if _, ok := r.collectorsByID[collectorID]; !ok {
@@ -223,28 +259,6 @@ func (r *registry) giveMetric(m *dto.Metric) {
 	case r.metricPool <- m:
 	default:
 	}
-}
-
-func checkDescs(descs []*Desc) error {
-	if len(descs) == 0 {
-		return errNoDesc
-	}
-	for _, desc := range descs {
-		if desc.err != nil {
-			return fmt.Errorf("descriptor %s is invalid: %s", desc, desc.err)
-		}
-	}
-	return nil
-}
-
-func calculateCollectorID(descs []*Desc) uint64 {
-	h := fnv.New64a()
-	buf := make([]byte, 8)
-	for _, desc := range descs {
-		binary.BigEndian.PutUint64(buf, desc.id)
-		h.Write(buf)
-	}
-	return h.Sum64()
 }
 
 func newRegistry() *registry {

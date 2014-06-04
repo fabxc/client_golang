@@ -27,7 +27,6 @@ import (
 // Prometheus metrics for monitoring production systems.
 type ExpvarCollector struct {
 	exports map[string]*Desc
-	descs   []*Desc
 }
 
 // NewExpvarCollector returns a newly allocated ExpvarCollector that still has
@@ -57,19 +56,16 @@ type ExpvarCollector struct {
 // leaves of that structure must be numbers or bools as above to serve as the
 // sample values.
 func NewExpvarCollector(exports map[string]*Desc) *ExpvarCollector {
-	descs := make([]*Desc, 0, len(exports))
-	for _, desc := range exports {
-		descs = append(descs, desc)
-	}
 	return &ExpvarCollector{
 		exports: exports,
-		descs:   descs,
 	}
 }
 
 // Describe implements Collector.
-func (e *ExpvarCollector) Describe() []*Desc {
-	return e.descs
+func (e *ExpvarCollector) Describe(ch chan<- *Desc) {
+	for _, desc := range e.exports {
+		ch <- desc
+	}
 }
 
 // Collect implements Collector.
