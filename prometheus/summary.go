@@ -26,8 +26,7 @@ import (
 	dto "github.com/prometheus/client_model/go"
 )
 
-// TODO: Timer for summary.
-// TODO: Standard http.HandlerFunc instrumentation pipeline.
+// TODO: Timer for summary. (???)
 
 // Summary captures individual observations from an event or sample stream and
 // summarizes them in a manner similar to traditional summary statistics:
@@ -59,25 +58,43 @@ const (
 // DefBufCap is the standard buffer size for collecting Summary observations.
 const DefBufCap = 1024
 
-// SummaryOpts determines options for a Summary.
+// SummaryOpts bundles the options for creating a Summary metric. It is
+// mandatory to set Name and Help to a non-empty string. All other fields are
+// optional and can safely be left at their zero value.
 type SummaryOpts struct {
-	// TODO proper doc comments
+	// Namespace, Subsystem, and Name are components of the canonical name
+	// of the Summary (created by joining these components with "_"). Only
+	// Name is mandatory, the others merely help structuring the name. Note
+	// that the canonical name of the Summary must be a valid Prometheus
+	// metric name.
 	Namespace string
 	Subsystem string
 	Name      string
 
-	// Help provides some helpful information about this metric.
-	Help        string
+	// Help provides information about this Summary. Mandatory!
+	Help string
+
+	// ConstLabels are used to attach fixed labels to this Summary. Note
+	// that in most cases, labels have a value that varies during the
+	// lifetime of a metric object. Those labels are managed with a
+	// SummaryVec collector. ConstLabels serve only special purposes,
+	// e.g. to put the revision of the running binary into a label (which is
+	// naturally constant during the lifetime of a program) or if more than
+	// one Summary object is used for the same metric name (in which case
+	// those Summary objects must differ in the values of their
+	// ConstLabels). If the value of a label never changes (not even between
+	// binaries), that label most likely should not be a label at all (but
+	// part of the metric name).
 	ConstLabels Labels
 
 	// Objectives defines the quantile rank estimates with the tolerated
-	// level of error defined as the value.  The default value is
+	// level of error defined as the value. The default value is
 	// DefObjectives.
 	Objectives map[float64]float64
 
-	// FlushInter sets the interval at which the summary's event stream
+	// FlushInter sets the interval at which the Summary's event stream
 	// samples are flushed.  This provides a stronger guarantee that stale
-	// data won't crowd out more recent samples.  The default value is
+	// data won't crowd out more recent samples. The default value is
 	// DefFlush.
 	FlushInter time.Duration
 
@@ -114,8 +131,6 @@ func newSummary(desc *Desc, opts SummaryOpts, labelValues ...string) Summary {
 		panic(fmt.Errorf("illegal buffer capacity BufCap=%d", opts.BufCap))
 	case opts.BufCap == 0:
 		opts.BufCap = DefBufCap
-	default:
-		opts.BufCap = opts.BufCap
 	}
 
 	result := &summary{

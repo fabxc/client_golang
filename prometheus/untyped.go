@@ -27,6 +27,7 @@ type Untyped interface {
 	Sub(float64)
 }
 
+// UntypedOpts is an alias for Opts. See there for doc comments.
 type UntypedOpts Opts
 
 // NewUntyped emits a new Untyped metric from the provided descriptor.

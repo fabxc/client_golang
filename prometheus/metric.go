@@ -45,16 +45,36 @@ type Metric interface {
 	Write(*dto.Metric)
 }
 
-// Opts is a dumb-data type for metric options. Each metric implementation has
-// its own XXXOpts type, but in most cases, it can just be an alias to this type
-// (until specific requirements show up).
+// Opts bundles the options for creating most Metric types. Each metric
+// implementation XXX has its own XXXOpts type, but in most cases, it is just be
+// an alias of this type (which might change when the requirement arises.)
+//
+// It is mandatory to set Name and Help to a non-empty string. All other fields
+// are optional and can safely be left at their zero value.
 type Opts struct {
-	// TODO proper doc comments.
+	// Namespace, Subsystem, and Name are components of the canonical name
+	// of the metric (created by joining these components with "_"). Only
+	// Name is mandatory, the others merely help structuring the name. Note
+	// that the canonical name of the metric must be a valid Prometheus
+	// metric name.
 	Namespace string
 	Subsystem string
 	Name      string
-	// Help provides some helpful information about this metric.
-	Help        string
+
+	// Help provides information about this metric. Mandatory!
+	Help string
+
+	// ConstLabels are used to attach fixed labels to this metric. Note that
+	// in most cases, labels have a value that varies during the lifetime of
+	// a metric object. Those labels are managed with a metric vector
+	// collector (like CounterVec, GaugeVec, UntypedVec). ConstLabels serve
+	// only special purposes, e.g. to put the revision of the running binary
+	// into a label (which is naturally constant during the lifetime of a
+	// program) or if more than one metric object is used for the same
+	// metric name (in which case those metric objects must differ in the
+	// values of their ConstLabels). If the value of a label never changes
+	// (not even between binaries), that label most likely should not be a
+	// label at all (but part of the metric name).
 	ConstLabels Labels
 }
 

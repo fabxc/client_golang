@@ -27,6 +27,7 @@ type Gauge interface {
 	Sub(float64)
 }
 
+// GaugeOpts is an alias for Opts. See there for doc comments.
 type GaugeOpts Opts
 
 // NewGauge emits a new Gauge from the provided descriptor.

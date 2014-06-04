@@ -36,6 +36,7 @@ type Counter interface {
 	Add(float64)
 }
 
+// CounterOpts is an alias for Opts. See there for doc comments.
 type CounterOpts Opts
 
 // NewCounter creates a new counter (without labels) based on the provided
