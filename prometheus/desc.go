@@ -151,8 +151,21 @@ func NewDesc(canonName, help string, variableLabels []string, constLabels Labels
 	return d
 }
 
-func (d *Desc) String() {
-	// TODO implement
+func (d *Desc) String() string {
+	lpStrings := make([]string, 0, len(d.constLabelPairs))
+	for _, lp := range d.constLabelPairs {
+		lpStrings = append(
+			lpStrings,
+			fmt.Sprintf("%s=%q", lp.Name, lp.Value),
+		)
+	}
+	return fmt.Sprintf(
+		"Desc{canonName: %q, help: %q, constLabels: {%s}, variableLables: %v}",
+		d.canonName,
+		d.help,
+		strings.Join(lpStrings, ","),
+		d.variableLabels,
+	)
 }
 
 func checkLabelName(l string) bool {
