@@ -14,37 +14,51 @@
 package prometheus
 
 import (
+	"runtime"
+
+	"code.google.com/p/goprotobuf/proto"
+
 	dto "github.com/prometheus/client_model/go"
 )
 
-// TODO make this a real-world example. Also, take this as an example for a user-defined metric.
-
-func NewFancyMetric(desc *Desc) *FancyMetric {
-	result := &FancyMetric{desc: desc}
-	result.Init(result)
+func NewCallbackMetric(desc *Desc, callback func() float64) *CallbackMetric {
+	result := &CallbackMetric{desc: desc, callback: callback}
+	result.Init(result) // Initialize the SelfCollector.
 	return result
 }
 
-type FancyMetric struct {
+// CallbackMetric is an example for a user defined Metric that exports the
+// result of a function call as a metric of type "untyped" without any
+// labels. It uses SelfCollector to turn the Metric into a Collector so that it
+// can be registered with Prometheus.
+//
+// Note that this is a very low-level approach. For more high-level approaches,
+// see the Collector examples.
+type CallbackMetric struct {
 	SelfCollector
 
-	desc *Desc
-	// Some more fancy fields to be inserted here.
+	desc     *Desc
+	callback func() float64
 }
 
-func (fm *FancyMetric) Desc() *Desc {
-	return fm.desc
+func (cm *CallbackMetric) Desc() *Desc {
+	return cm.desc
 }
 
-func (fm *FancyMetric) Write(*dto.Metric) {
-	// Imagine a truly fancy implementation.
+func (cm *CallbackMetric) Write(m *dto.Metric) {
+	m.Untyped = &dto.Untyped{Value: proto.Float64(cm.callback())}
 }
 
 func ExampleSelfCollector() {
-	fancyMetric := NewFancyMetric(NewDesc(
-		"fancy_metric",
-		"A hell of a fancy metric.",
-		nil, nil,
-	))
-	MustRegister(fancyMetric)
+	m := NewCallbackMetric(
+		NewDesc(
+			"runtime_num_goroutines",
+			"The number of goroutines that currently exist.",
+			nil, nil, // No labels, these must be nil.
+		),
+		func() float64 {
+			return float64(runtime.NumGoroutine())
+		},
+	)
+	MustRegister(m)
 }

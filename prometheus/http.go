@@ -50,7 +50,7 @@ func InstrumentHandler(path string, hnd http.Handler) http.HandlerFunc {
 		now := time.Now()
 
 		delegate := &responseWriterDelegator{ResponseWriter: w}
-		out := make(chan int, 1) // TODO: ???
+		out := make(chan int)
 		go computeApproximateRequestSize(r, out)
 		hnd.ServeHTTP(delegate, r)
 
@@ -77,7 +77,6 @@ func computeApproximateRequestSize(r *http.Request, out chan int) {
 			s += len(value)
 		}
 	}
-
 	s += len(r.Host)
 
 	// N.B. r.Form and r.MultipartForm are assumed to be included in r.URL.
@@ -85,9 +84,7 @@ func computeApproximateRequestSize(r *http.Request, out chan int) {
 	if r.ContentLength != -1 {
 		s += int(r.ContentLength)
 	}
-
 	out <- s
-	close(out)
 }
 
 type responseWriterDelegator struct {
