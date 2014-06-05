@@ -19,7 +19,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 )
 
@@ -29,16 +28,16 @@ func ExampleInstrumentHandler() {
 	// request and response sizes, and request latency are automatically
 	// exported to Prometheus, partitioned by http status code and method
 	// and by the handler name (here "fileserver").
-	http.Handle("/doc", prometheus.InstrumentHandler(
+	http.Handle("/doc", InstrumentHandler(
 		"fileserver", http.FileServer(http.Dir("/usr/share/doc")),
 	))
-	// But of course, you still have to make Prometheus handle the
-	// "/metrics" endpoint. If you used prometheus.Handler for that, it
-	// would be instrumented as well (with "prometheus" as handler name),
-	// but in this example, we want the handle name to be "metrics", so we
-	// instrument the uninstrumented Prometheus handler ourselves.
+	// But of course, the Prometheus handler still has to be made handle the
+	// "/metrics" endpoint. The handler returned by prometheus.Handler() is
+	// already instrumented - with "prometheus" as handler name. In this
+	// example, we want the handler name to be "metrics", so we instrument
+	// the uninstrumented Prometheus handler ourselves.
 	http.Handle("/metrics", InstrumentHandler(
-		"metrics", prometheus.UninstrumentedHandler(),
+		"metrics", UninstrumentedHandler(),
 	))
 }
 

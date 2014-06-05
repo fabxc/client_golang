@@ -508,5 +508,5 @@ func ExampleUnregister() {
 }
 
 func ExampleHandler() {
-	http.Handle("/metrics", Handler) // Easy!
+	http.Handle("/metrics", Handler()) // Easy!
 }

@@ -138,6 +138,24 @@ func SetMetricFamilyInjectionHook(hook func() []*dto.MetricFamily) {
 	defRegistry.metricFamilyInjectionHook = hook
 }
 
+// PanicOnCollectError sets the behavior whether a panic is caused upon an error
+// while metrics are collected and served to the http endpoint. By default, an
+// internal server error (status code 500) is served with an error message.
+func PanicOnCollectError(b bool) {
+	defRegistry.panicOnCollectError = b
+}
+
+// EnableCollectChecks enables or disables certain consistency checks during
+// metrics collection. By default, those checks are not enabled because they
+// inflict a performance penalty, and the errors they check for can only happen
+// if the used Metric and Collector types have internal programming
+// errors. While working with user defined Collectors or Metrics whose
+// correctness is not well established yet, it can be helpful to enable the
+// checks.
+func EnableCollectChecks(b bool) {
+	defRegistry.collectChecksEnabled = b
+}
+
 // encoder is a function that writes a dto.MetricFamily to an io.Writer in a
 // certain encoding. It returns the number of bytes written and any error
 // encountered.  Note that ext.WriteDelimited and text.MetricFamilyToText are
@@ -153,6 +171,8 @@ type registry struct {
 	metricFamilyPool          chan *dto.MetricFamily
 	metricPool                chan *dto.Metric
 	metricFamilyInjectionHook func() []*dto.MetricFamily
+
+	panicOnCollectError, collectChecksEnabled bool
 }
 
 func (r *registry) Register(c Collector) (Collector, error) {
@@ -277,6 +297,207 @@ func (r *registry) Unregister(c Collector) bool {
 	return true
 }
 
+func (r *registry) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	enc, contentType := chooseEncoder(req)
+	buf := r.getBuf()
+	defer r.giveBuf(buf)
+	header := w.Header()
+	header.Set(contentTypeHeader, contentType)
+	if _, err := r.writePB(buf, enc); err != nil {
+		if r.panicOnCollectError {
+			panic(err)
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return
+	}
+	if _, err := r.writeExternalPB(buf, enc); err != nil {
+		if r.panicOnCollectError {
+			panic(err)
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return
+	}
+	w.Write(buf.Bytes())
+}
+
+func (r *registry) writePB(w io.Writer, writeEncoded encoder) (int, error) {
+	metricFamiliesByName := make(map[string]*dto.MetricFamily, len(r.dimHashesByName))
+	var metricHashes map[uint64]struct{}
+	if r.collectChecksEnabled {
+		metricHashes = make(map[uint64]struct{})
+	}
+	metricChan := make(chan Metric, capMetricChan)
+	wg := sync.WaitGroup{}
+
+	// Scatter.
+	r.mtx.RLock()
+	wg.Add(len(r.collectorsByID))
+	go func() {
+		wg.Wait()
+		close(metricChan)
+	}()
+	for _, collector := range r.collectorsByID {
+		go func(collector Collector) {
+			defer wg.Done()
+			collector.Collect(metricChan)
+		}(collector)
+	}
+	r.mtx.RUnlock()
+
+	// Gather.
+	for metric := range metricChan {
+		desc := metric.Desc()
+		metricFamily, ok := metricFamiliesByName[desc.canonName]
+		if !ok {
+			metricFamily = r.getMetricFamily()
+			defer r.giveMetricFamily(metricFamily)
+			metricFamily.Name = proto.String(desc.canonName)
+			metricFamily.Help = proto.String(desc.help)
+			metricFamiliesByName[desc.canonName] = metricFamily
+		}
+		dtoMetric := r.getMetric()
+		defer r.giveMetric(dtoMetric)
+		metric.Write(dtoMetric)
+		switch {
+		case metricFamily.Type != nil:
+			// Type already set. We are good.
+		case dtoMetric.Gauge != nil:
+			metricFamily.Type = dto.MetricType_GAUGE.Enum()
+		case dtoMetric.Counter != nil:
+			metricFamily.Type = dto.MetricType_COUNTER.Enum()
+		case dtoMetric.Summary != nil:
+			metricFamily.Type = dto.MetricType_SUMMARY.Enum()
+		case dtoMetric.Untyped != nil:
+			metricFamily.Type = dto.MetricType_UNTYPED.Enum()
+		default:
+			return 0, fmt.Errorf("empty metric collected: %s", dtoMetric)
+		}
+		if r.collectChecksEnabled {
+			if err := r.checkConsistency(metricFamily, dtoMetric, desc, metricHashes); err != nil {
+				return 0, err
+			}
+		}
+		metricFamily.Metric = append(metricFamily.Metric, dtoMetric)
+	}
+
+	// Now that MetricFamilies are all set, sort their Metrics
+	// lexicographically by their label values.
+	for _, mf := range metricFamiliesByName {
+		sort.Sort(metricSorter(mf.Metric))
+	}
+
+	// Write out MetricFamilies sorted by their name.
+	names := make([]string, 0, len(metricFamiliesByName))
+	for name := range metricFamiliesByName {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	var written int
+	for _, name := range names {
+		w, err := writeEncoded(w, metricFamiliesByName[name])
+		written += w
+		if err != nil {
+			return written, err
+		}
+	}
+	return written, nil
+}
+
+func (r *registry) checkConsistency(metricFamily *dto.MetricFamily, dtoMetric *dto.Metric, desc *Desc, metricHashes map[uint64]struct{}) error {
+
+	// Type consistency with metric family.
+	if *metricFamily.Type == dto.MetricType_GAUGE && dtoMetric.Gauge == nil ||
+		*metricFamily.Type == dto.MetricType_COUNTER && dtoMetric.Counter == nil ||
+		*metricFamily.Type == dto.MetricType_SUMMARY && dtoMetric.Summary == nil ||
+		*metricFamily.Type == dto.MetricType_UNTYPED && dtoMetric.Untyped == nil {
+		return fmt.Errorf(
+			"collected metric %q is not a %s",
+			dtoMetric, metricFamily.Type,
+		)
+	}
+
+	// Desc consistency with metric family.
+	if *metricFamily.Help != desc.help {
+		return fmt.Errorf(
+			"collected metric %q has help %q but should have %q",
+			dtoMetric, desc.help, *metricFamily.Help,
+		)
+	}
+
+	// Is the desc consistent with the content of the metric?
+	lpsFromDesc := make([]*dto.LabelPair, 0, len(dtoMetric.Label))
+	lpsFromDesc = append(lpsFromDesc, desc.constLabelPairs...)
+	for _, l := range desc.variableLabels {
+		lpsFromDesc = append(lpsFromDesc, &dto.LabelPair{
+			Name: proto.String(l),
+		})
+	}
+	if len(lpsFromDesc) != len(dtoMetric.Label) {
+		return fmt.Errorf(
+			"labels in collected metric %q are inconsistent with descriptor %s",
+			dtoMetric, desc,
+		)
+	}
+	sort.Sort(LabelPairSorter(lpsFromDesc))
+	for i, lpFromDesc := range lpsFromDesc {
+		lpFromMetric := dtoMetric.Label[i]
+		if *lpFromDesc.Name != *lpFromMetric.Name ||
+			lpFromDesc.Value != nil && *lpFromDesc.Value != *lpFromMetric.Value {
+			return fmt.Errorf(
+				"labels in collected metric %q are inconsistent with descriptor %s",
+				dtoMetric, desc,
+			)
+		}
+	}
+
+	// Is the metric unique (i.e. no other metric with the same name and the same label values)?
+	h := fnv.New64a()
+	var buf bytes.Buffer
+	buf.WriteString(desc.canonName)
+	h.Write(buf.Bytes())
+	for _, lp := range dtoMetric.Label {
+		buf.Reset()
+		buf.WriteString(*lp.Value)
+		h.Write(buf.Bytes())
+	}
+	metricHash := h.Sum64()
+	if _, exists := metricHashes[metricHash]; exists {
+		return fmt.Errorf(
+			"collected metric %q was collected before with the same name and label values",
+			dtoMetric,
+		)
+	}
+	metricHashes[metricHash] = struct{}{}
+
+	r.mtx.RLock() // Remaining checks need the read lock.
+	defer r.mtx.RUnlock()
+
+	// Is the desc registered?
+	if _, exist := r.descIDs[desc.id]; !exist {
+		return fmt.Errorf("collected metric %q with unregistered descriptor %s", dtoMetric, desc)
+	}
+
+	return nil
+}
+
+func (r *registry) writeExternalPB(w io.Writer, writeEncoded encoder) (int, error) {
+	var written int
+	if r.metricFamilyInjectionHook == nil {
+		return 0, nil
+	}
+	for _, f := range r.metricFamilyInjectionHook() {
+		i, err := writeEncoded(w, f)
+		written += i
+		if err != nil {
+			return i, err
+		}
+	}
+	return written, nil
+}
+
 func (r *registry) getBuf() *bytes.Buffer {
 	select {
 	case buf := <-r.bufPool:
@@ -326,119 +547,6 @@ func (r *registry) giveMetric(m *dto.Metric) {
 	case r.metricPool <- m:
 	default:
 	}
-}
-
-func (r *registry) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	enc, contentType := chooseEncoder(req)
-	buf := r.getBuf()
-	defer r.giveBuf(buf)
-	header := w.Header()
-	header.Set(contentTypeHeader, contentType)
-	if _, err := r.writePB(buf, enc); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
-		return
-	}
-	if _, err := r.writeExternalPB(buf, enc); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
-		return
-	}
-	w.Write(buf.Bytes())
-}
-
-func (r *registry) writePB(w io.Writer, writeEncoded encoder) (int, error) {
-	metricFamiliesByName := make(map[string]*dto.MetricFamily, len(r.dimHashesByName))
-
-	metricChan := make(chan Metric, capMetricChan)
-	wg := sync.WaitGroup{}
-
-	// Scatter.
-	r.mtx.RLock()
-	wg.Add(len(r.collectorsByID))
-	go func() {
-		wg.Wait()
-		close(metricChan)
-	}()
-	for _, collector := range r.collectorsByID {
-		go func(collector Collector) {
-			defer wg.Done()
-			collector.Collect(metricChan)
-		}(collector)
-	}
-	r.mtx.RUnlock()
-
-	// Gather.
-	for metric := range metricChan {
-		desc := metric.Desc()
-		// TODO: Configurable check if desc is an element of collector.Describe().
-		metricFamily, ok := metricFamiliesByName[desc.canonName]
-		if !ok {
-			metricFamily = r.getMetricFamily()
-			defer r.giveMetricFamily(metricFamily)
-			metricFamily.Name = proto.String(desc.canonName)
-			metricFamily.Help = proto.String(desc.help)
-			metricFamiliesByName[desc.canonName] = metricFamily
-		}
-		dtoMetric := r.getMetric()
-		defer r.giveMetric(dtoMetric)
-		metric.Write(dtoMetric)
-		switch {
-		case metricFamily.Type != nil:
-			// Type already set. We are good.
-		case dtoMetric.Gauge != nil:
-			metricFamily.Type = dto.MetricType_GAUGE.Enum()
-		case dtoMetric.Counter != nil:
-			metricFamily.Type = dto.MetricType_COUNTER.Enum()
-		case dtoMetric.Summary != nil:
-			metricFamily.Type = dto.MetricType_SUMMARY.Enum()
-		case dtoMetric.Untyped != nil:
-			metricFamily.Type = dto.MetricType_UNTYPED.Enum()
-		default:
-			panic(fmt.Errorf("empty metric: %v", *dtoMetric))
-		}
-		// TODO: Configurable check if metric type is consistent.
-		// TODO: Configurable check if dtoMetric is consistent with desc.
-		metricFamily.Metric = append(metricFamily.Metric, dtoMetric)
-	}
-
-	// Now that MetricFamilies are all set, sort their Metrics
-	// lexicographically by their label values.
-	for _, mf := range metricFamiliesByName {
-		sort.Sort(metricSorter(mf.Metric))
-	}
-
-	// Write out MetricFamilies sorted by their name.
-	names := make([]string, 0, len(metricFamiliesByName))
-	for name := range metricFamiliesByName {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
-	var written int
-	for _, name := range names {
-		w, err := writeEncoded(w, metricFamiliesByName[name])
-		written += w
-		if err != nil {
-			return written, err
-		}
-	}
-	return written, nil
-}
-
-func (r *registry) writeExternalPB(w io.Writer, writeEncoded encoder) (int, error) {
-	var written int
-	if r.metricFamilyInjectionHook == nil {
-		return 0, nil
-	}
-	for _, f := range r.metricFamilyInjectionHook() {
-		i, err := writeEncoded(w, f)
-		written += i
-		if err != nil {
-			return i, err
-		}
-	}
-	return written, nil
 }
 
 func newRegistry() *registry {
