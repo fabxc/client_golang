@@ -76,6 +76,7 @@ func main() {
 	prometheus.MustRegister(workerCA)
 
 	http.Handle("/metrics", prometheus.Handler)
+	http.Handle("/", prometheus.InstrumentHandler("root", http.FileServer(http.Dir("/usr/share/doc"))))
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 

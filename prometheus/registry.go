@@ -39,6 +39,7 @@ import (
 )
 
 var (
+	defRegistry   = newRegistry()
 	errAlreadyReg = errors.New("duplicate metrics collector registration attempted")
 )
 
@@ -48,7 +49,7 @@ const (
 	numMetricFamilies = 1000
 	numMetrics        = 10000
 
-	// Capacity for the channel to collect metrics and descriptorn.
+	// Capacity for the channel to collect metrics and descriptors.
 	capMetricChan = 1000
 	capDescChan   = 10
 
@@ -73,6 +74,69 @@ const (
 	// for debugging.)
 	ProtoCompactTextTelemetryContentType = `application/vnd.google.protobuf; proto="io.prometheus.client.MetricFamily"; encoding="compact-text"`
 )
+
+// Handler returns the handler for the global Prometheus registry. It is already
+// instrumented with InstrumentHandler (using "prometheus" as handler
+// name). Usually the handler is used to handle the "/metrics" endpoint.
+func Handler() http.Handler {
+	return InstrumentHandler("prometheus", defRegistry)
+}
+
+// UninstrumentedHandler works in the same way as Handler, but the returned
+// handler is not instrumented. This is useful if no instrumentation is desired
+// (for whatever reason) or if the instrumentation has to happen with a
+// different handler name (or with a different instrumentation approach
+// altogether). See the InstrumentHandler example.
+func UninstrumentedHandler() http.Handler {
+	return defRegistry
+}
+
+// Register enrolls a new metrics collector.  It returns an error if the
+// provided descriptors are problematic or at least one of them shares the same
+// name and const labels with one that is already registered.  It returns the
+// enrolled metrics collector. Do not register the same Collector
+// multiple times concurrently.
+func Register(m Collector) (Collector, error) {
+	return defRegistry.Register(m)
+}
+
+// MustRegister works like Register but panics where Register would have
+// returned an error.
+func MustRegister(m Collector) Collector {
+	m, err := Register(m)
+	if err != nil {
+		panic(err)
+	}
+	return m
+}
+
+// RegisterOrGet enrolls a new metrics collector once and only once. It returns
+// an error if the provided descriptors are problematic or at least one of them
+// shares the same name and preset labels with one that is already registered.
+// It returns the enrolled metric or the existing one. Do not register the same
+// Collector multiple times concurrently.
+func RegisterOrGet(m Collector) (Collector, error) {
+	return defRegistry.RegisterOrGet(m)
+}
+
+// MustRegisterOrGet works like Register but panics where RegisterOrGet would
+// have returned an error.
+func MustRegisterOrGet(m Collector) Collector {
+	existing, err := RegisterOrGet(m)
+	if err != nil {
+		panic(err)
+	}
+	return existing
+}
+
+// Unregister unenrolls a metric returning whether the metric was unenrolled.
+func Unregister(m Collector) bool {
+	return defRegistry.Unregister(m)
+}
+
+func SetMetricFamilyInjectionHook(hook func() []*dto.MetricFamily) {
+	defRegistry.metricFamilyInjectionHook = hook
+}
 
 // encoder is a function that writes a dto.MetricFamily to an io.Writer in a
 // certain encoding. It returns the number of bytes written and any error
@@ -102,6 +166,7 @@ func (r *registry) Register(c Collector) (Collector, error) {
 	newDimHashesByName := map[string]uint64{}
 	collectorIDHash := fnv.New64a()
 	buf := make([]byte, 8)
+	var duplicateDescErr error
 
 	r.mtx.Lock()
 	defer r.mtx.Unlock()
@@ -115,22 +180,19 @@ func (r *registry) Register(c Collector) (Collector, error) {
 
 		// Is the descID unique?
 		// (In other words: Is the canonName + constLabel combination unique?)
-		// First compare to existing descIDs...
 		if _, exists := r.descIDs[desc.id]; exists {
-			return nil, fmt.Errorf("descriptor %s already exists with the same fully-qualified name and const label values", desc)
+			duplicateDescErr = fmt.Errorf("descriptor %s already exists with the same fully-qualified name and const label values", desc)
 		}
-		// ...then to the new descIDs already seen.
-		if _, exists := newDescIDs[desc.id]; exists {
-			return nil, fmt.Errorf("metrics collector has two descriptors with the same fully-qualified name and preset label values, offender is %s", desc)
+		// If its not a duplicate desc in this collector, add it to the hash.
+		// (We allow duplicate descs within the same collector, they will simply be ignored.)
+		if _, exists := newDescIDs[desc.id]; !exists {
+			newDescIDs[desc.id] = struct{}{}
+			binary.BigEndian.PutUint64(buf, desc.id)
+			collectorIDHash.Write(buf)
 		}
-		// Uniqueness established. Remember this guy...
-		newDescIDs[desc.id] = struct{}{}
-		binary.BigEndian.PutUint64(buf, desc.id)
-		collectorIDHash.Write(buf)
-
 		// Are all the label names and the help string consistent with
 		// previous descriptors with the same name?
-		// Again first check existing descriptors...
+		// First check existing descriptors...
 		if dimHash, exists := r.dimHashesByName[desc.canonName]; exists {
 			if dimHash != desc.dimHash {
 				return nil, fmt.Errorf("a previously registered descriptor with the same fully qualified name as %s has different label names or a different help string", desc)
@@ -153,6 +215,11 @@ func (r *registry) Register(c Collector) (Collector, error) {
 	collectorID := collectorIDHash.Sum64()
 	if existing, exists := r.collectorsByID[collectorID]; exists {
 		return existing, errAlreadyReg
+	}
+	// If the collectorID is new, but at least one of the descs existed
+	// before, we are in trouble.
+	if duplicateDescErr != nil {
+		return nil, duplicateDescErr
 	}
 
 	// Only after all tests have passed, actually register.
@@ -259,97 +326,6 @@ func (r *registry) giveMetric(m *dto.Metric) {
 	case r.metricPool <- m:
 	default:
 	}
-}
-
-func newRegistry() *registry {
-	return &registry{
-		collectorsByID:   map[uint64]Collector{},
-		descIDs:          map[uint64]struct{}{},
-		dimHashesByName:  map[string]uint64{},
-		bufPool:          make(chan *bytes.Buffer, numBufs),
-		metricFamilyPool: make(chan *dto.MetricFamily, numMetricFamilies),
-		metricPool:       make(chan *dto.Metric, numMetrics),
-	}
-}
-
-var defRegistry = newRegistry()
-
-// Handler is the Prometheus http.HandlerFunc for the global metric registry.
-var Handler = InstrumentHandler("prometheus", defRegistry)
-
-// Register enrolls a new metrics collector.  It returns an error if the
-// provided descriptors are problematic or at least one of them shares the same
-// name and preset labels with one that is already registered.  It returns the
-// enrolled metrics collector. Do not register the same Collector
-// multiple times concurrently.
-func Register(m Collector) (Collector, error) {
-	return defRegistry.Register(m)
-}
-
-// MustRegister works like Register but panics where Register would have
-// returned an error.
-func MustRegister(m Collector) Collector {
-	m, err := Register(m)
-	if err != nil {
-		panic(err)
-	}
-	return m
-}
-
-// RegisterOrGet enrolls a new metrics collector once and only once. It returns
-// an error if the provided descriptors are problematic or at least one of them
-// shares the same name and preset labels with one that is already registered.
-// It returns the enrolled metric or the existing one. Do not register the same
-// Collector multiple times concurrently.
-func RegisterOrGet(m Collector) (Collector, error) {
-	return defRegistry.RegisterOrGet(m)
-}
-
-// MustRegisterOrGet works like Register but panics where RegisterOrGet would
-// have returned an error.
-func MustRegisterOrGet(m Collector) Collector {
-	existing, err := RegisterOrGet(m)
-	if err != nil {
-		panic(err)
-	}
-	return existing
-}
-
-// Unregister unenrolls a metric returning whether the metric was unenrolled.
-func Unregister(m Collector) bool {
-	return defRegistry.Unregister(m)
-}
-
-func SetMetricFamilyInjectionHook(hook func() []*dto.MetricFamily) {
-	defRegistry.metricFamilyInjectionHook = hook
-}
-
-func chooseEncoder(req *http.Request) (encoder, string) {
-	accepts := goautoneg.ParseAccept(req.Header.Get("Accept"))
-	for _, accept := range accepts {
-		switch {
-		case accept.Type == "application" &&
-			accept.SubType == "vnd.google.protobuf" &&
-			accept.Params["proto"] == "io.prometheus.client.MetricFamily":
-			switch accept.Params["encoding"] {
-			case "delimited":
-				return text.WriteProtoDelimited, DelimitedTelemetryContentType
-			case "text":
-				return text.WriteProtoText, ProtoTextTelemetryContentType
-			case "compact-text":
-				return text.WriteProtoCompactText, ProtoCompactTextTelemetryContentType
-			default:
-				continue
-			}
-		case accept.Type == "text" &&
-			accept.SubType == "plain" &&
-			(accept.Params["version"] == "0.0.4" || accept.Params["version"] == ""):
-			return text.MetricFamilyToText, TextTelemetryContentType
-		default:
-			continue
-		}
-	}
-	return text.MetricFamilyToText, TextTelemetryContentType
 }
 
 func (r *registry) ServeHTTP(w http.ResponseWriter, req *http.Request) {
@@ -463,6 +439,45 @@ func (r *registry) writeExternalPB(w io.Writer, writeEncoded encoder) (int, erro
 		}
 	}
 	return written, nil
+}
+
+func newRegistry() *registry {
+	return &registry{
+		collectorsByID:   map[uint64]Collector{},
+		descIDs:          map[uint64]struct{}{},
+		dimHashesByName:  map[string]uint64{},
+		bufPool:          make(chan *bytes.Buffer, numBufs),
+		metricFamilyPool: make(chan *dto.MetricFamily, numMetricFamilies),
+		metricPool:       make(chan *dto.Metric, numMetrics),
+	}
+}
+
+func chooseEncoder(req *http.Request) (encoder, string) {
+	accepts := goautoneg.ParseAccept(req.Header.Get("Accept"))
+	for _, accept := range accepts {
+		switch {
+		case accept.Type == "application" &&
+			accept.SubType == "vnd.google.protobuf" &&
+			accept.Params["proto"] == "io.prometheus.client.MetricFamily":
+			switch accept.Params["encoding"] {
+			case "delimited":
+				return text.WriteProtoDelimited, DelimitedTelemetryContentType
+			case "text":
+				return text.WriteProtoText, ProtoTextTelemetryContentType
+			case "compact-text":
+				return text.WriteProtoCompactText, ProtoCompactTextTelemetryContentType
+			default:
+				continue
+			}
+		case accept.Type == "text" &&
+			accept.SubType == "plain" &&
+			(accept.Params["version"] == "0.0.4" || accept.Params["version"] == ""):
+			return text.MetricFamilyToText, TextTelemetryContentType
+		default:
+			continue
+		}
+	}
+	return text.MetricFamilyToText, TextTelemetryContentType
 }
 
 type metricSorter []*dto.Metric

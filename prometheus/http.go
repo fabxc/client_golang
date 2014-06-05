@@ -20,6 +20,46 @@ import (
 	"time"
 )
 
+var (
+	instLabels = []string{"handler", "method", "code"}
+
+	reqCnt = NewCounterVec(
+		CounterOpts{
+			Subsystem: "http",
+			Name:      "request_total",
+			Help:      "Total number of HTTP requests made.",
+		},
+		instLabels,
+	)
+
+	reqDur = NewSummaryVec(
+		SummaryOpts{
+			Subsystem: "http",
+			Name:      "request_duration_seconds",
+			Help:      "The HTTP request latencies in seconds.",
+		},
+		instLabels,
+	)
+
+	reqSz = NewSummaryVec(
+		SummaryOpts{
+			Subsystem: "http",
+			Name:      "request_size_bytes",
+			Help:      "The HTTP request sizes in bytes..",
+		},
+		instLabels,
+	)
+
+	resSz = NewSummaryVec(
+		SummaryOpts{
+			Subsystem: "http",
+			Name:      "response_size_bytes",
+			Help:      "The HTTP response sizes in bytes.",
+		},
+		instLabels,
+	)
+)
+
 type nower interface {
 	Now() time.Time
 }
@@ -44,24 +84,34 @@ func nowSeries(t ...time.Time) nower {
 	})
 }
 
-func InstrumentHandler(path string, hnd http.Handler) http.HandlerFunc {
-	// TODO: This will probably create name collisions... discuss!
+// InstrumentHandler wraps the given http handler for instrumentation. It
+// registers four metric vector collectors (if not already done) and reports
+// http metrics to them: http_request_total, http_request_duration_seconds,
+// http_request_size_bytes, http_response_size_bytes. Each has three labels:
+// handler, method, code. The value of the handler label is set by the
+// handlerName parameter of this function.
+func InstrumentHandler(handlerName string, handler http.Handler) http.HandlerFunc {
+	MustRegisterOrGet(reqCnt)
+	MustRegisterOrGet(reqDur)
+	MustRegisterOrGet(reqSz)
+	MustRegisterOrGet(resSz)
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		now := time.Now()
 
 		delegate := &responseWriterDelegator{ResponseWriter: w}
 		out := make(chan int)
 		go computeApproximateRequestSize(r, out)
-		hnd.ServeHTTP(delegate, r)
+		handler.ServeHTTP(delegate, r)
 
-		elapsed := float64(time.Since(now))
+		elapsed := float64(time.Since(now)) / float64(time.Second)
 
 		method := sanitizeMethod(r.Method)
 		code := sanitizeCode(delegate.status)
-		reqCnt.WithLabelValues(path, method, code).Inc()
-		reqDur.WithLabelValues(path, method, code).Observe(elapsed)
-		resSz.WithLabelValues(path, method, code).Observe(float64(delegate.written))
-		reqSz.WithLabelValues(path, method, code).Observe(float64(<-out))
+		reqCnt.WithLabelValues(handlerName, method, code).Inc()
+		reqDur.WithLabelValues(handlerName, method, code).Observe(elapsed)
+		resSz.WithLabelValues(handlerName, method, code).Observe(float64(delegate.written))
+		reqSz.WithLabelValues(handlerName, method, code).Observe(float64(<-out))
 	})
 }
 
@@ -93,14 +143,19 @@ type responseWriterDelegator struct {
 	handler, method string
 	status          int
 	written         int
+	wroteHeader     bool
 }
 
 func (r *responseWriterDelegator) WriteHeader(code int) {
 	r.status = code
+	r.wroteHeader = true
 	r.ResponseWriter.WriteHeader(code)
 }
 
 func (r *responseWriterDelegator) Write(b []byte) (int, error) {
+	if !r.wroteHeader {
+		r.WriteHeader(http.StatusOK)
+	}
 	n, err := r.ResponseWriter.Write(b)
 	r.written += n
 	return n, err
@@ -228,51 +283,4 @@ func sanitizeCode(s int) string {
 	default:
 		return strconv.Itoa(s)
 	}
-}
-
-var (
-	instLabels = []string{"handler", "method", "code"}
-
-	reqCnt = NewCounterVec(
-		CounterOpts{
-			Subsystem: "http",
-			Name:      "requests_total",
-			Help:      "Total no. of HTTP requests made.",
-		},
-		instLabels,
-	)
-
-	reqDur = NewSummaryVec(
-		SummaryOpts{
-			Subsystem: "http",
-			Name:      "requests_duration_ms",
-			Help:      "The request latencies.",
-		},
-		instLabels,
-	)
-
-	reqSz = NewSummaryVec(
-		SummaryOpts{
-			Subsystem: "http",
-			Name:      "requests_size_bytes",
-			Help:      "The request sizes.",
-		},
-		instLabels,
-	)
-
-	resSz = NewSummaryVec(
-		SummaryOpts{
-			Subsystem: "http",
-			Name:      "response_size_bytes",
-			Help:      "The response sizes.",
-		},
-		instLabels,
-	)
-)
-
-func init() {
-	MustRegister(reqCnt)
-	MustRegister(reqDur)
-	MustRegister(reqSz)
-	MustRegister(resSz)
 }

@@ -32,8 +32,9 @@ func NewCallbackMetric(desc *Desc, callback func() float64) *CallbackMetric {
 // labels. It uses SelfCollector to turn the Metric into a Collector so that it
 // can be registered with Prometheus.
 //
-// Note that this is a very low-level approach. For more high-level approaches,
-// see the Collector examples.
+// Note that this is a pretty low-level approach. A more high-level approach is
+// to implement a Collector directly and not an individual Metric, see the
+// Collector examples.
 type CallbackMetric struct {
 	SelfCollector
 
@@ -52,8 +53,8 @@ func (cm *CallbackMetric) Write(m *dto.Metric) {
 func ExampleSelfCollector() {
 	m := NewCallbackMetric(
 		NewDesc(
-			"runtime_num_goroutines",
-			"The number of goroutines that currently exist.",
+			"runtime_goroutine_total",
+			"Total number of goroutines that currently exist.",
 			nil, nil, // No labels, these must be nil.
 		),
 		func() float64 {
