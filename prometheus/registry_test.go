@@ -22,6 +22,7 @@ package prometheus
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -47,10 +48,12 @@ func (r *fakeResponseWriter) WriteHeader(c int) {
 
 func testHandler(t testing.TB) {
 
-	metricVec := NewCounterVec(CounterOpts{
-		Name: "name",
-		Help: "docstring",
-	},
+	metricVec := NewCounterVec(
+		CounterOpts{
+			Name:        "name",
+			Help:        "docstring",
+			ConstLabels: Labels{"constname": "constvalue"},
+		},
 		[]string{"labelname"},
 	)
 
@@ -72,8 +75,8 @@ func testHandler(t testing.TB) {
 							Value: proto.String("externalval1"),
 						},
 						{
-							Name:  proto.String("externalbasename"),
-							Value: proto.String("externalbasevalue"),
+							Name:  proto.String("externalconstname"),
+							Value: proto.String("externalconstvalue"),
 						},
 					},
 					Counter: &dto.Counter{
@@ -100,7 +103,7 @@ func testHandler(t testing.TB) {
 	externalMetricFamilyAsBytes := externalBuf.Bytes()
 	externalMetricFamilyAsText := []byte(`# HELP externalname externaldocstring
 # TYPE externalname counter
-externalname{externallabelname="externalval1",externalbasename="externalbasevalue"} 1
+externalname{externallabelname="externalval1",externalconstname="externalconstvalue"} 1
 `)
 	externalMetricFamilyAsProtoText := []byte(`name: "externalname"
 help: "externaldocstring"
@@ -111,8 +114,8 @@ metric: <
     value: "externalval1"
   >
   label: <
-    name: "externalbasename"
-    value: "externalbasevalue"
+    name: "externalconstname"
+    value: "externalconstvalue"
   >
   counter: <
     value: 1
@@ -120,7 +123,7 @@ metric: <
 >
 
 `)
-	externalMetricFamilyAsProtoCompactText := []byte(`name:"externalname" help:"externaldocstring" type:COUNTER metric:<label:<name:"externallabelname" value:"externalval1" > label:<name:"externalbasename" value:"externalbasevalue" > counter:<value:1 > > 
+	externalMetricFamilyAsProtoCompactText := []byte(`name:"externalname" help:"externaldocstring" type:COUNTER metric:<label:<name:"externallabelname" value:"externalval1" > label:<name:"externalconstname" value:"externalconstvalue" > counter:<value:1 > > 
 `)
 
 	expectedMetricFamily := &dto.MetricFamily{
@@ -131,12 +134,12 @@ metric: <
 			{
 				Label: []*dto.LabelPair{
 					{
-						Name:  proto.String("labelname"),
-						Value: proto.String("val1"),
+						Name:  proto.String("constname"),
+						Value: proto.String("constvalue"),
 					},
 					{
-						Name:  proto.String("basename"),
-						Value: proto.String("basevalue"),
+						Name:  proto.String("labelname"),
+						Value: proto.String("val1"),
 					},
 				},
 				Counter: &dto.Counter{
@@ -146,12 +149,12 @@ metric: <
 			{
 				Label: []*dto.LabelPair{
 					{
-						Name:  proto.String("labelname"),
-						Value: proto.String("val2"),
+						Name:  proto.String("constname"),
+						Value: proto.String("constvalue"),
 					},
 					{
-						Name:  proto.String("basename"),
-						Value: proto.String("basevalue"),
+						Name:  proto.String("labelname"),
+						Value: proto.String("val2"),
 					},
 				},
 				Counter: &dto.Counter{
@@ -177,20 +180,20 @@ metric: <
 	expectedMetricFamilyAsBytes := buf.Bytes()
 	expectedMetricFamilyAsText := []byte(`# HELP name docstring
 # TYPE name counter
-name{labelname="val1",basename="basevalue"} 1
-name{labelname="val2",basename="basevalue"} 1
+name{constname="constvalue",labelname="val1"} 1
+name{constname="constvalue",labelname="val2"} 1
 `)
 	expectedMetricFamilyAsProtoText := []byte(`name: "name"
 help: "docstring"
 type: COUNTER
 metric: <
   label: <
-    name: "labelname"
-    value: "val1"
+    name: "constname"
+    value: "constvalue"
   >
   label: <
-    name: "basename"
-    value: "basevalue"
+    name: "labelname"
+    value: "val1"
   >
   counter: <
     value: 1
@@ -198,12 +201,12 @@ metric: <
 >
 metric: <
   label: <
-    name: "labelname"
-    value: "val2"
+    name: "constname"
+    value: "constvalue"
   >
   label: <
-    name: "basename"
-    value: "basevalue"
+    name: "labelname"
+    value: "val2"
   >
   counter: <
     value: 1
@@ -211,7 +214,7 @@ metric: <
 >
 
 `)
-	expectedMetricFamilyAsProtoCompactText := []byte(`name:"name" help:"docstring" type:COUNTER metric:<label:<name:"labelname" value:"val1" > label:<name:"basename" value:"basevalue" > counter:<value:1 > > metric:<label:<name:"labelname" value:"val2" > label:<name:"basename" value:"basevalue" > counter:<value:1 > > 
+	expectedMetricFamilyAsProtoCompactText := []byte(`name:"name" help:"docstring" type:COUNTER metric:<label:<name:"constname" value:"constvalue" > label:<name:"labelname" value:"val1" > counter:<value:1 > > metric:<label:<name:"constname" value:"constvalue" > label:<name:"labelname" value:"val2" > counter:<value:1 > > 
 `)
 
 	type output struct {
@@ -231,9 +234,9 @@ metric: <
 			},
 			out: output{
 				headers: map[string]string{
-					"Content-Type": `application/json; schema="prometheus/telemetry"; version=0.0.2`,
+					"Content-Type": `text/plain; version=0.0.4`,
 				},
-				body: []byte("[]\n"),
+				body: []byte{},
 			},
 		},
 		{ // 1
@@ -242,9 +245,9 @@ metric: <
 			},
 			out: output{
 				headers: map[string]string{
-					"Content-Type": `application/json; schema="prometheus/telemetry"; version=0.0.2`,
+					"Content-Type": `text/plain; version=0.0.4`,
 				},
-				body: []byte("[]\n"),
+				body: []byte{},
 			},
 		},
 		{ // 2
@@ -253,9 +256,9 @@ metric: <
 			},
 			out: output{
 				headers: map[string]string{
-					"Content-Type": `application/json; schema="prometheus/telemetry"; version=0.0.2`,
+					"Content-Type": `text/plain; version=0.0.4`,
 				},
-				body: []byte("[]\n"),
+				body: []byte{},
 			},
 		},
 		{ // 3
@@ -275,10 +278,9 @@ metric: <
 			},
 			out: output{
 				headers: map[string]string{
-					"Content-Type": `application/json; schema="prometheus/telemetry"; version=0.0.2`,
+					"Content-Type": `text/plain; version=0.0.4`,
 				},
-				body: []byte(`[{"baseLabels":{"__name__":"name","basename":"basevalue"},"docstring":"docstring","metric":{"type":"counter","value":[{"labels":{"labelname":"val1"},"value":1},{"labels":{"labelname":"val2"},"value":1}]}}]
-`),
+				body: expectedMetricFamilyAsText,
 			},
 			withCounter: true,
 		},
@@ -300,9 +302,9 @@ metric: <
 			},
 			out: output{
 				headers: map[string]string{
-					"Content-Type": `application/json; schema="prometheus/telemetry"; version=0.0.2`,
+					"Content-Type": `text/plain; version=0.0.4`,
 				},
-				body: []byte("[]\n"),
+				body: externalMetricFamilyAsText,
 			},
 			withExternalMF: true,
 		},
@@ -328,8 +330,8 @@ metric: <
 				},
 				body: bytes.Join(
 					[][]byte{
-						expectedMetricFamilyAsBytes,
 						externalMetricFamilyAsBytes,
+						expectedMetricFamilyAsBytes,
 					},
 					[]byte{},
 				),
@@ -370,8 +372,8 @@ metric: <
 				},
 				body: bytes.Join(
 					[][]byte{
-						expectedMetricFamilyAsText,
 						externalMetricFamilyAsText,
+						expectedMetricFamilyAsText,
 					},
 					[]byte{},
 				),
@@ -389,8 +391,8 @@ metric: <
 				},
 				body: bytes.Join(
 					[][]byte{
-						expectedMetricFamilyAsBytes,
 						externalMetricFamilyAsBytes,
+						expectedMetricFamilyAsBytes,
 					},
 					[]byte{},
 				),
@@ -408,8 +410,8 @@ metric: <
 				},
 				body: bytes.Join(
 					[][]byte{
-						expectedMetricFamilyAsProtoText,
 						externalMetricFamilyAsProtoText,
+						expectedMetricFamilyAsProtoText,
 					},
 					[]byte{},
 				),
@@ -427,8 +429,8 @@ metric: <
 				},
 				body: bytes.Join(
 					[][]byte{
-						expectedMetricFamilyAsProtoCompactText,
 						externalMetricFamilyAsProtoCompactText,
+						expectedMetricFamilyAsProtoCompactText,
 					},
 					[]byte{},
 				),
@@ -475,38 +477,161 @@ metric: <
 	}
 }
 
-// func TestHandler(t *testing.T) {
-// 	testHandler(t)
-// }
-//
-// func BenchmarkHandler(b *testing.B) {
-// 	for i := 0; i < b.N; i++ {
-// 		testHandler(b)
-// 	}
-// }
-
-func ExampleMustRegister() {
-	MustRegister(NewGauge(GaugeOpts{
-		Name: "my_spiffy_metric",
-		Help: "it's spiffy description",
-	}))
+func TestHandler(t *testing.T) {
+	testHandler(t)
 }
 
-func ExampleMustRegisterOrGet() {
-	// I may have already registered this.
-	gauge := NewGauge(GaugeOpts{
-		Name: "my_spiffy_metric",
-		Help: "it's spiffy description",
+func BenchmarkHandler(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		testHandler(b)
+	}
+}
+
+func ExampleRegister() {
+	// Imagine you have a worker pool and want to count the tasks completed.
+	taskCounter := NewCounter(CounterOpts{
+		Subsystem: "worker_pool",
+		Name:      "completed_tasks_total",
+		Help:      "Total number of tasks completed.",
 	})
-	gauge = MustRegisterOrGet(gauge).(Gauge)
-	gauge.Set(42)
-}
+	// This will register fine.
+	if _, err := Register(taskCounter); err != nil {
+		fmt.Println(err)
+	} else {
+		fmt.Println("taskCounter registered.")
+	}
+	// Don't forget to tell the http server about the Prometheus handler.
+	// (In a real program, you still need to start the http server...)
+	http.Handle("/metrics", Handler())
 
-func ExampleUnregister() {
-	var oldAndBusted Gauge // I no longer need this!
-	Unregister(oldAndBusted)
-}
+	// Now you can start workers and give every one of them a pointer to cnt
+	// and let it increment it whenever it completes a task.
+	taskCounter.Inc() // This has to happen somewhere in the worker code.
 
-func ExampleHandler() {
-	http.Handle("/metrics", Handler()) // Easy!
+	// But wait, you want to see how individual workers perform. So you need
+	// a vector of counters, with one element for each worker.
+	taskCounterVec := NewCounterVec(
+		CounterOpts{
+			Subsystem: "worker_pool",
+			Name:      "completed_tasks_total",
+			Help:      "Total number of tasks completed.",
+		},
+		[]string{"worker_id"},
+	)
+
+	// Registering will fail because we already have a metric of that name.
+	if _, err := Register(taskCounterVec); err != nil {
+		fmt.Println("taskCounterVec not registered:", err)
+	} else {
+		fmt.Println("taskCounterVec registered.")
+	}
+
+	// To fix, first unregister the old taskCounter.
+	if Unregister(taskCounter) {
+		fmt.Println("taskCounter unregistered.")
+	}
+
+	// Try registering taskCounterVec again.
+	if _, err := Register(taskCounterVec); err != nil {
+		fmt.Println("taskCounterVec not registered:", err)
+	} else {
+		fmt.Println("taskCounterVec registered.")
+	}
+	// Bummer! Still doesn't work.
+
+	// Prometheus will not allow you to ever export metrics with
+	// inconsistent help strings or label names. After unregistering, the
+	// unregistered metrics will cease to show up in the /metrics http
+	// response, but the registry still remembers that those metrics had
+	// been exported before. For this example, we will now choose a
+	// different name. (In a real program, you would obviously not export
+	// the obsolete metric in the first place.)
+	taskCounterVec = NewCounterVec(
+		CounterOpts{
+			Subsystem: "worker_pool",
+			Name:      "completed_tasks_by_id",
+			Help:      "Total number of tasks completed.",
+		},
+		[]string{"worker_id"},
+	)
+	if _, err := Register(taskCounterVec); err != nil {
+		fmt.Println("taskCounterVec not registered:", err)
+	} else {
+		fmt.Println("taskCounterVec registered.")
+	}
+	// Finally it worked!
+
+	// The workers have to tell taskCounterVec their id to increment the
+	// right element in the metric vector.
+	taskCounterVec.WithLabelValues("42").Inc() // Code from worker 42.
+
+	// Each worker could also keep a reference to their own counter element
+	// around. Pick the counter at initialization time of the worker.
+	myCounter := taskCounterVec.WithLabelValues("42") // From worker 42 initialization code.
+	myCounter.Inc()                                   // Somewhere in the code of that worker.
+
+	// Note that something like WithLabelValues("42", "spurious arg") would
+	// panic (because you have provided too many label values). If you want
+	// to get an error instead, use GetMetricWithLabelValuen(...) instead.
+	notMyCounter, err := taskCounterVec.GetMetricWithLabelValues("42", "spurious arg")
+	if err != nil {
+		fmt.Println("Worker initialization failed:", err)
+	}
+	if notMyCounter == nil {
+		fmt.Println("notMyCounter is nil.")
+	}
+
+	// A different (and somewhat tricky) approach is to use
+	// ConstLabels. ConstLabels are pairs of label names and label values
+	// that never change. You might ask what those labels are good for (and
+	// rightfully so - if they never change, they could as well be part of
+	// the metric name). There are essentially two use-cases: The first is
+	// if labels are constant throughout the lifetime of a binary execution,
+	// but they vary over time or between different instances of a running
+	// binary. The second is what we have here: Each worker creates and
+	// registers an own Counter instance where the only difference is in the
+	// value of the ConstLabels. Those Counters can all be registered
+	// because the different ConstLabel values guarantee that each worker
+	// will increment a different Counter metric.
+	counterOpts := CounterOpts{
+		Subsystem:   "worker_pool",
+		Name:        "completed_tasks",
+		Help:        "Total number of tasks completed.",
+		ConstLabels: Labels{"worker_id": "42"},
+	}
+	taskCounterForWorker42 := NewCounter(counterOpts)
+	if _, err := Register(taskCounterForWorker42); err != nil {
+		fmt.Println("taskCounterVForWorker42 not registered:", err)
+	} else {
+		fmt.Println("taskCounterForWorker42 registered.")
+	}
+	// Obviously, in real code, taskCounterForWorker42 would be a member
+	// variable of a worker struct, and the "42" would be retrieved with a
+	// GetId() method or something. The Counter would be created and
+	// registered in the initialization code of the worker.
+
+	// For the creation of the next Counter, we can recycle
+	// counterOpts. Just change the ConstLabels.
+	counterOpts.ConstLabels = Labels{"worker_id": "2001"}
+	taskCounterForWorker2001 := NewCounter(counterOpts)
+	if _, err := Register(taskCounterForWorker2001); err != nil {
+		fmt.Println("taskCounterVForWorker2001 not registered:", err)
+	} else {
+		fmt.Println("taskCounterForWorker2001 registered.")
+	}
+
+	taskCounterForWorker2001.Inc()
+	taskCounterForWorker42.Inc()
+	taskCounterForWorker2001.Inc()
+
+	// Output:
+	// taskCounter registered.
+	// taskCounterVec not registered: a previously registered descriptor with the same fully-qualified name as Desc{fqName: "worker_pool_completed_tasks_total", help: "Total number of tasks completed.", constLabels: {}, variableLables: [worker_id]} has different label names or a different help string
+	// taskCounter unregistered.
+	// taskCounterVec not registered: a previously registered descriptor with the same fully-qualified name as Desc{fqName: "worker_pool_completed_tasks_total", help: "Total number of tasks completed.", constLabels: {}, variableLables: [worker_id]} has different label names or a different help string
+	// taskCounterVec registered.
+	// Worker initialization failed: inconsistent label cardinality
+	// notMyCounter is nil.
+	// taskCounterForWorker42 registered.
+	// taskCounterForWorker2001 registered.
 }

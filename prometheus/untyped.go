@@ -33,7 +33,7 @@ type UntypedOpts Opts
 // NewUntyped emits a new Untyped metric from the provided descriptor.
 func NewUntyped(opts UntypedOpts) Untyped {
 	return newValue(NewDesc(
-		BuildCanonName(opts.Namespace, opts.Subsystem, opts.Name),
+		BuildFQName(opts.Namespace, opts.Subsystem, opts.Name),
 		opts.Help,
 		nil,
 		opts.ConstLabels,
@@ -46,7 +46,7 @@ type UntypedVec struct {
 
 func NewUntypedVec(opts UntypedOpts, labelNames []string) *UntypedVec {
 	desc := NewDesc(
-		BuildCanonName(opts.Namespace, opts.Subsystem, opts.Name),
+		BuildFQName(opts.Namespace, opts.Subsystem, opts.Name),
 		opts.Help,
 		labelNames,
 		opts.ConstLabels,
@@ -65,12 +65,18 @@ func NewUntypedVec(opts UntypedOpts, labelNames []string) *UntypedVec {
 
 func (m *UntypedVec) GetMetricWithLabelValues(lvs ...string) (Untyped, error) {
 	metric, err := m.MetricVec.GetMetricWithLabelValues(lvs...)
-	return metric.(Untyped), err
+	if metric != nil {
+		return metric.(Untyped), err
+	}
+	return nil, err
 }
 
 func (m *UntypedVec) GetMetricWith(labels Labels) (Untyped, error) {
 	metric, err := m.MetricVec.GetMetricWith(labels)
-	return metric.(Untyped), err
+	if metric != nil {
+		return metric.(Untyped), err
+	}
+	return nil, err
 }
 
 func (m *UntypedVec) WithLabelValues(lvs ...string) Untyped {

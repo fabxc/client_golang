@@ -35,7 +35,7 @@ func ExampleExpvarCollector() {
 			nil, nil,
 		),
 		"http-request-map": NewDesc(
-			"http_requests",
+			"expvar_http_request_total",
 			"How many http requests processed, partitioned by status code and http method.",
 			[]string{"code", "method"}, nil,
 		),
@@ -77,7 +77,7 @@ func ExampleExpvarCollector() {
 		close(metricChan)
 	}()
 	for m := range metricChan {
-		if m.Desc().canonName != "expvar_memstats" {
+		if m.Desc().fqName != "expvar_memstats" {
 			metric.Reset()
 			m.Write(&metric)
 			metricStrings = append(metricStrings, metric.String())

@@ -14,8 +14,11 @@
 package prometheus
 
 import (
+	"fmt"
+	"sort"
 	"sync"
 	"testing"
+	"code.google.com/p/goprotobuf/proto"
 
 	dto "github.com/prometheus/client_model/go"
 )
@@ -116,42 +119,143 @@ func BenchmarkSummaryWrite8(b *testing.B) {
 
 func ExampleSummary() {
 	temps := NewSummary(SummaryOpts{
-		Name: "pond_temperature",
+		Name: "pond_temperature_celsius",
 		Help: "The temperature of the frog pond.", // Sorry, we can't measure how badly it smells.
 	})
 
+	// Some observations.
+	// (In real code, these would be located where needed.)
+	temps.Observe(40)
+	temps.Observe(33)
+	temps.Observe(39)
+	temps.Observe(42)
+	temps.Observe(35)
 	temps.Observe(37)
-	// - count:   1
-	// - sum:    37
-	// - median: 37
-	// - 90th:   37
-	// - 99th:   37
+	temps.Observe(41)
+	temps.Observe(38)
+	temps.Observe(34)
+	temps.Observe(36)
+	temps.Observe(40)
+	temps.Observe(40)
+
+	// Just for demonstration, let's check the state of the summary by
+	// (ab)using its Write method (which is usually only used by Prometheus
+	// internally).
+	metric := &dto.Metric{}
+	temps.Write(metric)
+	fmt.Println(proto.MarshalTextString(metric))
+
+	// Output:
+	// summary: <
+	//   sample_count: 12
+	//   sample_sum: 455
+	//   quantile: <
+	//     quantile: 0.5
+	//     value: 38
+	//   >
+	//   quantile: <
+	//     quantile: 0.9
+	//     value: 40
+	//   >
+	//   quantile: <
+	//     quantile: 0.99
+	//     value: 42
+	//   >
+	// >
 }
 
 func ExampleSummaryVec() {
 	temps := NewSummaryVec(
 		SummaryOpts{
-			Name: "pond_temperature",
+			Name: "pond_temperature_celsius",
 			Help: "The temperature of the frog pond.", // Sorry, we can't measure how badly it smells.
 		},
 		[]string{"species"},
 	)
 
-	temps.WithLabelValues("litoria-caerulea").Observe(37) // Not so stinky.
+	// Some observations.
+	// (In real code, these would be located where needed.)
+	temps.WithLabelValues("litoria-caerulea").Observe(29.9)
+	temps.WithLabelValues("lithobates-catesbeianus").Observe(31.5)
+	temps.WithLabelValues("litoria-caerulea").Observe(44.5)
+	temps.WithLabelValues("lithobates-catesbeianus").Observe(31.5)
+	temps.WithLabelValues("lithobates-catesbeianus").Observe(41.7)
+	temps.WithLabelValues("litoria-caerulea").Observe(37.8)
+	temps.WithLabelValues("lithobates-catesbeianus").Observe(38.2)
+	temps.WithLabelValues("litoria-caerulea").Observe(33.0)
+	temps.WithLabelValues("lithobates-catesbeianus").Observe(40.9)
+	temps.WithLabelValues("litoria-caerulea").Observe(34.5)
+	temps.WithLabelValues("lithobates-catesbeianus").Observe(42.7)
+	temps.WithLabelValues("lithobates-catesbeianus").Observe(44.5)
+	temps.WithLabelValues("litoria-caerulea").Observe(34.4)
+	temps.WithLabelValues("lithobates-catesbeianus").Observe(42.9)
+	temps.WithLabelValues("litoria-caerulea").Observe(43.1)
+	temps.WithLabelValues("litoria-caerulea").Observe(41.7)
+	temps.WithLabelValues("lithobates-catesbeianus").Observe(35.7)
+	temps.WithLabelValues("lithobates-catesbeianus").Observe(34.8)
+	temps.WithLabelValues("litoria-caerulea").Observe(46.1)
+	temps.WithLabelValues("litoria-caerulea").Observe(40.4)
+	temps.WithLabelValues("lithobates-catesbeianus").Observe(33.3)
 
-	temps.WithLabelValues("lithobates-catesbeianus").Observe(40) // Quite stinky!
-	// Grab a beer to drown away the pain of the smell before sampling again.
-	temps.WithLabelValues("lithobates-catesbeianus").Observe(42)
-	// species: litoria-caerulea
-	// - count:   1
-	// - sum:    37
-	// - median: 37
-	// - 90th:   37
-	// - 99th:   37
-	// species: lithobates-catesbeianus
-	// - count:   2
-	// - sum:    82
-	// - median: 41
-	// - 90th:   42
-	// - 99th:   42
+	// Just for demonstration, let's check the state of the summary vector
+	// by (ab)using its Collect method and the Write method of its elements
+	// (which is usually only used by Prometheus internally - code like the
+	// following will never appear in your own code).
+	metricChan := make(chan Metric)
+	go func() {
+		defer close(metricChan)
+		temps.Collect(metricChan)
+	}()
+
+	metricStrings := []string{}
+	for metric := range metricChan {
+		dtoMetric := &dto.Metric{}
+		metric.Write(dtoMetric)
+		metricStrings = append(metricStrings, proto.MarshalTextString(dtoMetric))
+	}
+	sort.Strings(metricStrings) // For reproducible print order.
+	fmt.Println(metricStrings)
+
+	// Output:
+	// [label: <
+	//   name: "species"
+	//   value: "lithobates-catesbeianus"
+	// >
+	// summary: <
+	//   sample_count: 11
+	//   sample_sum: 417.7
+	//   quantile: <
+	//     quantile: 0.5
+	//     value: 35.7
+	//   >
+	//   quantile: <
+	//     quantile: 0.9
+	//     value: 42.7
+	//   >
+	//   quantile: <
+	//     quantile: 0.99
+	//     value: 44.5
+	//   >
+	// >
+	//  label: <
+	//   name: "species"
+	//   value: "litoria-caerulea"
+	// >
+	// summary: <
+	//   sample_count: 10
+	//   sample_sum: 385.4
+	//   quantile: <
+	//     quantile: 0.5
+	//     value: 37.8
+	//   >
+	//   quantile: <
+	//     quantile: 0.9
+	//     value: 44.5
+	//   >
+	//   quantile: <
+	//     quantile: 0.99
+	//     value: 44.5
+	//   >
+	// >
+	// ]
 }

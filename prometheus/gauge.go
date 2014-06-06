@@ -33,7 +33,7 @@ type GaugeOpts Opts
 // NewGauge emits a new Gauge from the provided descriptor.
 func NewGauge(opts GaugeOpts) Gauge {
 	return newValue(NewDesc(
-		BuildCanonName(opts.Namespace, opts.Subsystem, opts.Name),
+		BuildFQName(opts.Namespace, opts.Subsystem, opts.Name),
 		opts.Help,
 		nil,
 		opts.ConstLabels,
@@ -46,7 +46,7 @@ type GaugeVec struct {
 
 func NewGaugeVec(opts GaugeOpts, labelNames []string) *GaugeVec {
 	desc := NewDesc(
-		BuildCanonName(opts.Namespace, opts.Subsystem, opts.Name),
+		BuildFQName(opts.Namespace, opts.Subsystem, opts.Name),
 		opts.Help,
 		labelNames,
 		opts.ConstLabels,
@@ -65,12 +65,18 @@ func NewGaugeVec(opts GaugeOpts, labelNames []string) *GaugeVec {
 
 func (m *GaugeVec) GetMetricWithLabelValues(lvs ...string) (Gauge, error) {
 	metric, err := m.MetricVec.GetMetricWithLabelValues(lvs...)
-	return metric.(Gauge), err
+	if metric != nil {
+		return metric.(Gauge), err
+	}
+	return nil, err
 }
 
 func (m *GaugeVec) GetMetricWith(labels Labels) (Gauge, error) {
 	metric, err := m.MetricVec.GetMetricWith(labels)
-	return metric.(Gauge), err
+	if metric != nil {
+		return metric.(Gauge), err
+	}
+	return nil, err
 }
 
 func (m *GaugeVec) WithLabelValues(lvs ...string) Gauge {

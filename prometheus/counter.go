@@ -43,7 +43,7 @@ type CounterOpts Opts
 // descriptor.
 func NewCounter(opts CounterOpts) Counter {
 	desc := NewDesc(
-		BuildCanonName(opts.Namespace, opts.Subsystem, opts.Name),
+		BuildFQName(opts.Namespace, opts.Subsystem, opts.Name),
 		opts.Help,
 		nil,
 		opts.ConstLabels,
@@ -77,7 +77,7 @@ type CounterVec struct {
 // will return an error if Desc does not contain at least one VariableLabel.
 func NewCounterVec(opts CounterOpts, labelNames []string) *CounterVec {
 	desc := NewDesc(
-		BuildCanonName(opts.Namespace, opts.Subsystem, opts.Name),
+		BuildFQName(opts.Namespace, opts.Subsystem, opts.Name),
 		opts.Help,
 		labelNames,
 		opts.ConstLabels,
@@ -111,7 +111,10 @@ func NewCounterVec(opts CounterOpts, labelNames []string) *CounterVec {
 // created later.
 func (m *CounterVec) GetMetricWithLabelValues(lvs ...string) (Counter, error) {
 	metric, err := m.MetricVec.GetMetricWithLabelValues(lvs...)
-	return metric.(Counter), err
+	if metric != nil {
+		return metric.(Counter), err
+	}
+	return nil, err
 }
 
 // GetMetricWith returns the Counter for the given label map (the label names
@@ -120,7 +123,10 @@ func (m *CounterVec) GetMetricWithLabelValues(lvs ...string) (Counter, error) {
 // keeping the Counter pointer are the same as for GetMetricWithLabelValues.
 func (m *CounterVec) GetMetricWith(labels Labels) (Counter, error) {
 	metric, err := m.MetricVec.GetMetricWith(labels)
-	return metric.(Counter), err
+	if metric != nil {
+		return metric.(Counter), err
+	}
+	return nil, err
 }
 
 // WithLabelValues works as GetMetricWithLabelValues, but panics where

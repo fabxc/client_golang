@@ -54,11 +54,11 @@ type Metric interface {
 // It is mandatory to set Name and Help to a non-empty string. All other fields
 // are optional and can safely be left at their zero value.
 type Opts struct {
-	// Namespace, Subsystem, and Name are components of the canonical name
-	// of the metric (created by joining these components with "_"). Only
-	// Name is mandatory, the others merely help structuring the name. Note
-	// that the canonical name of the metric must be a valid Prometheus
-	// metric name.
+	// Namespace, Subsystem, and Name are components of the fully-qualified
+	// name of the metric (created by joining these components with
+	// "_"). Only Name is mandatory, the others merely help structuring the
+	// name. Note that the fully-qualified name of the metric must be a
+	// valid Prometheus metric name.
 	Namespace string
 	Subsystem string
 	Name      string
@@ -80,14 +80,14 @@ type Opts struct {
 	ConstLabels Labels
 }
 
-// BuildCanonName joins the given three name components by "_". Empty name
+// BuildFQName joins the given three name components by "_". Empty name
 // components are ignored. If the name parameter itself is empty, an empty
 // string is returned, no matter what. Metric implementations included in this
-// library use this function internally to generate the canonical metric name
-// from the name component in their Opts. Users of the library will only have a
-// use for this function if they implement their own Metric or instantiate a
-// Desc (with NewDesc) directly.
-func BuildCanonName(namespace, subsystem, name string) string {
+// library use this function internally to generate the fully-qualified metric
+// name from the name component in their Opts. Users of the library will only
+// have a use for this function if they implement their own Metric or
+// instantiate a Desc (with NewDesc) directly.
+func BuildFQName(namespace, subsystem, name string) string {
 	if name == "" {
 		return ""
 	}

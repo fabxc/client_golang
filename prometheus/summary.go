@@ -60,11 +60,11 @@ const DefBufCap = 1024
 // mandatory to set Name and Help to a non-empty string. All other fields are
 // optional and can safely be left at their zero value.
 type SummaryOpts struct {
-	// Namespace, Subsystem, and Name are components of the canonical name
-	// of the Summary (created by joining these components with "_"). Only
-	// Name is mandatory, the others merely help structuring the name. Note
-	// that the canonical name of the Summary must be a valid Prometheus
-	// metric name.
+	// Namespace, Subsystem, and Name are components of the fully-qualified
+	// name of the Summary (created by joining these components with
+	// "_"). Only Name is mandatory, the others merely help structuring the
+	// name. Note that the fully-qualified name of the Summary must be a
+	// valid Prometheus metric name.
 	Namespace string
 	Subsystem string
 	Name      string
@@ -105,7 +105,7 @@ type SummaryOpts struct {
 func NewSummary(opts SummaryOpts) Summary {
 	return newSummary(
 		NewDesc(
-			BuildCanonName(opts.Namespace, opts.Subsystem, opts.Name),
+			BuildFQName(opts.Namespace, opts.Subsystem, opts.Name),
 			opts.Help,
 			nil,
 			opts.ConstLabels,
@@ -327,7 +327,7 @@ type SummaryVec struct {
 
 func NewSummaryVec(opts SummaryOpts, labelNames []string) *SummaryVec {
 	desc := NewDesc(
-		BuildCanonName(opts.Namespace, opts.Subsystem, opts.Name),
+		BuildFQName(opts.Namespace, opts.Subsystem, opts.Name),
 		opts.Help,
 		labelNames,
 		opts.ConstLabels,
@@ -346,12 +346,18 @@ func NewSummaryVec(opts SummaryOpts, labelNames []string) *SummaryVec {
 
 func (m *SummaryVec) GetMetricWithLabelValues(lvs ...string) (Summary, error) {
 	metric, err := m.MetricVec.GetMetricWithLabelValues(lvs...)
-	return metric.(Summary), err
+	if metric != nil {
+		return metric.(Summary), err
+	}
+	return nil, err
 }
 
 func (m *SummaryVec) GetMetricWith(labels Labels) (Summary, error) {
 	metric, err := m.MetricVec.GetMetricWith(labels)
-	return metric.(Summary), err
+	if metric != nil {
+		return metric.(Summary), err
+	}
+	return nil, err
 }
 
 func (m *SummaryVec) WithLabelValues(lvs ...string) Summary {

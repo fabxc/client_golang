@@ -15,6 +15,7 @@ package prometheus
 
 import (
 	"flag"
+	"math"
 	"math/rand"
 	"sync"
 	"testing"
@@ -61,23 +62,23 @@ func ExampleGaugeVec() {
 	delOps.With(Labels{"qos": "lazy", "corpus": "cat-memes"}).Set(1)
 }
 
-func listenGaugeStream(vals, final chan float64, done chan struct{}) {
-	var last float64
+func listenGaugeStream(vals, result chan float64, done chan struct{}) {
+	var sum float64
 outer:
 	for {
 		select {
 		case <-done:
 			close(vals)
-			for last = range vals {
+			for v := range vals {
+				sum += v
 			}
-
 			break outer
 		case v := <-vals:
-			last = v
+			sum += v
 		}
 	}
-	final <- last
-	close(final)
+	result <- sum
+	close(result)
 }
 
 func TestGaugeConcurrency(t *testing.T) {
@@ -91,10 +92,10 @@ func TestGaugeConcurrency(t *testing.T) {
 		end.Add(concLevel)
 
 		sStream := make(chan float64, mutations*concLevel)
-		final := make(chan float64)
+		result := make(chan float64)
 		done := make(chan struct{})
 
-		go listenGaugeStream(sStream, final, done)
+		go listenGaugeStream(sStream, result, done)
 		go func() {
 			end.Wait()
 			close(done)
@@ -104,32 +105,27 @@ func TestGaugeConcurrency(t *testing.T) {
 			Name: "test_gauge",
 			Help: "no help can be found here",
 		})
-
 		for i := 0; i < concLevel; i++ {
 			vals := make([]float64, 0, mutations)
 			for j := 0; j < mutations; j++ {
-				vals = append(vals, rand.NormFloat64())
+				vals = append(vals, rand.Float64()-0.5)
 			}
 
 			go func(vals []float64) {
 				start.Wait()
 				for _, v := range vals {
 					sStream <- v
-					gge.Set(v)
+					gge.Add(v)
 				}
 				end.Done()
 			}(vals)
 		}
-
 		start.Done()
 
-		last := <-final
-
-		if last != gge.(*value).val {
-			t.Fatalf("expected %f, got %f", last, gge.(*value).val)
+		if expected, got := <-result, gge.(*value).val; math.Abs(expected-got) > 0.000001 {
+			t.Fatalf("expected approx. %f, got %f", expected, got)
 			return false
 		}
-
 		return true
 	}
 
@@ -142,52 +138,59 @@ func TestGaugeVecConcurrency(t *testing.T) {
 	it := func(n uint32) bool {
 		mutations := int(n % 10000)
 		concLevel := int((n % 15) + 1)
+		vecLength := int((n % 5) + 1)
 
 		start := &sync.WaitGroup{}
 		start.Add(1)
 		end := &sync.WaitGroup{}
 		end.Add(concLevel)
 
-		sStream := make(chan float64, mutations*concLevel)
-		final := make(chan float64)
+		sStreams := make([]chan float64, vecLength)
+		results := make([]chan float64, vecLength)
 		done := make(chan struct{})
 
-		go listenGaugeStream(sStream, final, done)
+		for i, _ := range sStreams {
+			sStreams[i] = make(chan float64, mutations*concLevel)
+			results[i] = make(chan float64)
+			go listenGaugeStream(sStreams[i], results[i], done)
+		}
+
 		go func() {
 			end.Wait()
 			close(done)
 		}()
 
-		gge := NewGauge(GaugeOpts{
-			Name: "test_gauge",
-			Help: "no help can be found here",
-		})
-
+		gge := NewGaugeVec(
+			GaugeOpts{
+				Name: "test_gauge",
+				Help: "no help can be found here",
+			},
+			[]string{"label"},
+		)
 		for i := 0; i < concLevel; i++ {
 			vals := make([]float64, 0, mutations)
 			for j := 0; j < mutations; j++ {
-				vals = append(vals, rand.NormFloat64())
+				vals = append(vals, rand.Float64()-0.5)
 			}
 
 			go func(vals []float64) {
 				start.Wait()
 				for _, v := range vals {
-					sStream <- v
-					gge.Set(v)
+					i := rand.Intn(vecLength)
+					sStreams[i] <- v
+					gge.WithLabelValues(string('A' + i)).Add(v)
 				}
 				end.Done()
 			}(vals)
 		}
-
 		start.Done()
 
-		last := <-final
-
-		if last != gge.(*value).val {
-			t.Fatalf("expected %f, got %f", last, gge.(*value).val)
-			return false
+		for i, _ := range sStreams {
+			if expected, got := <-results[i], gge.WithLabelValues(string('A'+i)).(*value).val; math.Abs(expected-got) > 0.000001 {
+				t.Fatalf("expected approx. %f, got %f", expected, got)
+				return false
+			}
 		}
-
 		return true
 	}
 

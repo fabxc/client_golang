@@ -31,13 +31,13 @@ type Labels map[string]string
 // Collectors and Metrics.
 //
 // Descriptors registered with the same registry have to fulfill certain
-// consistency and uniqueness criteria if they share the same canonical
+// consistency and uniqueness criteria if they share the same fully-qualified
 // name. They must also have the same Type, the same Help, and the same label
 // names (aka label dimensions) in each, constLabels and variableLabels, but
 // they must differ in the values of the ConstLabels.
 type Desc struct {
-	// canonName has been built from Namespace, Subsystem, and Name.
-	canonName string
+	// fqName has been built from Namespace, Subsystem, and Name.
+	fqName string
 	// help provides some helpful information about this metric.
 	help string
 	// constLabelPairs contains precalculated DTO label pairs based on
@@ -46,12 +46,12 @@ type Desc struct {
 	// VariableLabels contains names of labels for which the metric
 	// maintains variable values.
 	variableLabels []string
-	// id is a hash of the values of the ConstLabels and canonName. This
+	// id is a hash of the values of the ConstLabels and fqName. This
 	// must be unique among all registered descriptors and can therefore be
 	// used as an identifier of the descriptor.
 	id uint64
 	// dimHash is a hash of the label names (preset and variable) and the
-	// Help string. Each Desc with the same canonName must have the same
+	// Help string. Each Desc with the same fqName must have the same
 	// dimHash.
 	dimHash uint64
 	// err is an error that occured during construction. It is reported on
@@ -61,11 +61,11 @@ type Desc struct {
 
 // NewDesc allocates and initializes a new Desc. Errors are recorded in the Desc
 // and will be reported on registration time. variableLabels and constLabels can
-// be nil if no such labels should be set. canonName and help must not be empty
+// be nil if no such labels should be set. fqName and help must not be empty
 // strings.
-func NewDesc(canonName, help string, variableLabels []string, constLabels Labels) *Desc {
+func NewDesc(fqName, help string, variableLabels []string, constLabels Labels) *Desc {
 	d := &Desc{
-		canonName:      canonName,
+		fqName:         fqName,
 		help:           help,
 		variableLabels: variableLabels,
 	}
@@ -73,14 +73,14 @@ func NewDesc(canonName, help string, variableLabels []string, constLabels Labels
 		d.err = errors.New("empty help string")
 		return d
 	}
-	if !metricNameRE.MatchString(canonName) {
-		d.err = fmt.Errorf("%q is not a valid metric name", canonName)
+	if !metricNameRE.MatchString(fqName) {
+		d.err = fmt.Errorf("%q is not a valid metric name", fqName)
 		return d
 	}
 	// labelValues contains the label values of const labels (in order of
-	// their sorted label names) plus the canonName (at position 0).
+	// their sorted label names) plus the fqName (at position 0).
 	labelValues := make([]string, 1, len(constLabels)+1)
-	labelValues[0] = canonName
+	labelValues[0] = fqName
 	labelNames := make([]string, 0, len(constLabels)+len(variableLabels))
 	labelNameSet := map[string]struct{}{}
 	// First add only the const label names and sort them...
@@ -155,8 +155,8 @@ func (d *Desc) String() string {
 		)
 	}
 	return fmt.Sprintf(
-		"Desc{canonName: %q, help: %q, constLabels: {%s}, variableLables: %v}",
-		d.canonName,
+		"Desc{fqName: %q, help: %q, constLabels: {%s}, variableLables: %v}",
+		d.fqName,
 		d.help,
 		strings.Join(lpStrings, ","),
 		d.variableLabels,

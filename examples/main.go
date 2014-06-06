@@ -48,17 +48,17 @@ func main() {
 	//////////////////////
 	MemStatsDescriptors := []*prometheus.Desc{
 		prometheus.NewDesc(
-			prometheus.BuildCanonName("", "memstats", "alloc"),
+			prometheus.BuildFQName("", "memstats", "alloc"),
 			"bytes allocated and still in use",
 			nil, nil,
 		),
 		prometheus.NewDesc(
-			prometheus.BuildCanonName("", "memstats", "total_alloc"),
+			prometheus.BuildFQName("", "memstats", "total_alloc"),
 			"bytes allocated (even if freed)",
 			nil, nil,
 		),
 		prometheus.NewDesc(
-			prometheus.BuildCanonName("", "memstats", "num_gc"),
+			prometheus.BuildFQName("", "memstats", "num_gc"),
 			"number of GCs run",
 			nil, nil,
 		),
@@ -97,7 +97,7 @@ func (m *MemStatsCollector) Collect(ch chan<- prometheus.Metric) {
 	ch <- prometheus.MustNewConstMetric(m.Descs[0], prometheus.GaugeValue, float64(ms.Alloc))
 	ch <- prometheus.MustNewConstMetric(m.Descs[1], prometheus.GaugeValue, float64(ms.TotalAlloc))
 	ch <- prometheus.MustNewConstMetric(m.Descs[2], prometheus.CounterValue, float64(ms.NumGC))
-	// To avoid new allocations each scrape, you could also keep metric
+	// To avoid new allocations on each scrape, you could also keep metric
 	// objects around and return the same objects each time, just with new
 	// values set.
 }

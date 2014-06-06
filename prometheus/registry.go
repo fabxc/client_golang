@@ -210,32 +210,34 @@ func (r *registry) Register(c Collector) (Collector, error) {
 		}
 
 		// Is the descID unique?
-		// (In other words: Is the canonName + constLabel combination unique?)
+		// (In other words: Is the fqName + constLabel combination unique?)
 		if _, exists := r.descIDs[desc.id]; exists {
 			duplicateDescErr = fmt.Errorf("descriptor %s already exists with the same fully-qualified name and const label values", desc)
 		}
-		// If its not a duplicate desc in this collector, add it to the hash.
-		// (We allow duplicate descs within the same collector, they will simply be ignored.)
+		// If it is not a duplicate desc in this collector, add it to
+		// the hash.  (We allow duplicate descs within the same
+		// collector, but their existence must be a no-op.)
 		if _, exists := newDescIDs[desc.id]; !exists {
 			newDescIDs[desc.id] = struct{}{}
 			binary.BigEndian.PutUint64(buf, desc.id)
 			collectorIDHash.Write(buf)
 		}
+
 		// Are all the label names and the help string consistent with
-		// previous descriptors with the same name?
+		// previous descriptors of the same name?
 		// First check existing descriptors...
-		if dimHash, exists := r.dimHashesByName[desc.canonName]; exists {
+		if dimHash, exists := r.dimHashesByName[desc.fqName]; exists {
 			if dimHash != desc.dimHash {
-				return nil, fmt.Errorf("a previously registered descriptor with the same fully qualified name as %s has different label names or a different help string", desc)
+				return nil, fmt.Errorf("a previously registered descriptor with the same fully-qualified name as %s has different label names or a different help string", desc)
 			}
 		} else {
 			// ...then check the new descriptors already seen.
-			if dimHash, exists := newDimHashesByName[desc.canonName]; exists {
+			if dimHash, exists := newDimHashesByName[desc.fqName]; exists {
 				if dimHash != desc.dimHash {
 					return nil, fmt.Errorf("descriptors reported by collector have inconsistent label names or help strings for the same fully-qualified name, offender is %s", desc)
 				}
 			} else {
-				newDimHashesByName[desc.canonName] = desc.dimHash
+				newDimHashesByName[desc.fqName] = desc.dimHash
 			}
 		}
 	}
@@ -357,13 +359,13 @@ func (r *registry) writePB(w io.Writer, writeEncoded encoder) (int, error) {
 		// of metricFamiliesByName (and of metricHashes if checks are
 		// enabled). Most likely not worth it.
 		desc := metric.Desc()
-		metricFamily, ok := metricFamiliesByName[desc.canonName]
+		metricFamily, ok := metricFamiliesByName[desc.fqName]
 		if !ok {
 			metricFamily = r.getMetricFamily()
 			defer r.giveMetricFamily(metricFamily)
-			metricFamily.Name = proto.String(desc.canonName)
+			metricFamily.Name = proto.String(desc.fqName)
 			metricFamily.Help = proto.String(desc.help)
-			metricFamiliesByName[desc.canonName] = metricFamily
+			metricFamiliesByName[desc.fqName] = metricFamily
 		}
 		dtoMetric := r.getMetric()
 		defer r.giveMetric(dtoMetric)
@@ -473,7 +475,7 @@ func (r *registry) checkConsistency(metricFamily *dto.MetricFamily, dtoMetric *d
 	// Is the metric unique (i.e. no other metric with the same name and the same label values)?
 	h := fnv.New64a()
 	var buf bytes.Buffer
-	buf.WriteString(desc.canonName)
+	buf.WriteString(desc.fqName)
 	h.Write(buf.Bytes())
 	for _, lp := range dtoMetric.Label {
 		buf.Reset()

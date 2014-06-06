@@ -23,7 +23,7 @@ import (
 	dto "github.com/prometheus/client_model/go"
 )
 
-func TestBuildCanonName(t *testing.T) {
+func TestBuildFQName(t *testing.T) {
 	scenarios := []struct{ namespace, subsystem, name, result string }{
 		{"a", "b", "c", "a_b_c"},
 		{"", "b", "c", "b_c"},
@@ -36,7 +36,7 @@ func TestBuildCanonName(t *testing.T) {
 	}
 
 	for i, s := range scenarios {
-		if want, got := s.result, BuildCanonName(s.namespace, s.subsystem, s.name); want != got {
+		if want, got := s.result, BuildFQName(s.namespace, s.subsystem, s.name); want != got {
 			t.Errorf("%d. want %s, got %s", i, want, got)
 		}
 	}

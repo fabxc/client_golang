@@ -20,12 +20,22 @@ import (
 
 func ExampleCounter() {
 	pushCounter := NewCounter(CounterOpts{
+		Name: "repository_pushes", // Note: No help string...
+	})
+	_, err := Register(pushCounter) // ... so this will return an error.
+	if err != nil {
+		fmt.Println("Push counter couldn't be registered, no counting will happen:", err)
+		return
+	}
+
+	// Try it once more, this time with a help string.
+	pushCounter = NewCounter(CounterOpts{
 		Name: "repository_pushes",
 		Help: "Number of pushes to external repository.",
 	})
-	_, err := Register(pushCounter)
+	_, err = Register(pushCounter)
 	if err != nil {
-		fmt.Println("Push counter couldn't  be registered, no counting will happen:", err)
+		fmt.Println("Push counter couldn't be registered, no counting will happen:", err)
 		return
 	}
 
@@ -34,6 +44,8 @@ func ExampleCounter() {
 	for _ = range pushComplete {
 		pushCounter.Inc()
 	}
+	// Output:
+	// Push counter couldn't be registered, no counting will happen: descriptor Desc{fqName: "repository_pushes", help: "", constLabels: {}, variableLables: []} is invalid: empty help string
 }
 
 func ExampleCounterVec() {

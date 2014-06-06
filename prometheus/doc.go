@@ -20,7 +20,9 @@
 // To expose metrics registered with the default registry, you have to register
 // prometheus.Handler with your http server. The usual endpoint is "/metrics".
 //
-//     http.Handle("/metrics", prometheus.Handler)
+//     http.Handle("/metrics", prometheus.Handler())
 //
 // See the various examples for more details.
+//
+// TODO: Add a proper tutorial, basic use and advanced use.
 package prometheus
