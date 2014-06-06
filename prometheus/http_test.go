@@ -49,45 +49,17 @@ func (b respBody) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func TestInstrumentHandler(t *testing.T) {
-	defer func(n nower, c *CounterVec, d, reqS, resS *SummaryVec) {
+	defer func(n nower) {
 		now = n.(nower)
-		reqCnt = c
-		reqDur = d
-		reqSz = reqS
-		resSz = resS
-	}(now, reqCnt, reqDur, reqSz, resSz)
+	}(now)
 
 	instant := time.Now()
 	end := instant.Add(30 * time.Second)
 	now = nowSeries(instant, end)
-	reqCnt = NewCounterVec(
-		CounterOpts{
-			Name: reqCnt.desc.canonName,
-			Help: reqCnt.desc.help,
-		},
-		reqCnt.desc.variableLabels,
-	)
-	reqDur = NewSummaryVec(
-		SummaryOpts{
-			Name: reqDur.desc.canonName,
-			Help: reqDur.desc.help,
-		},
-		reqDur.desc.variableLabels,
-	)
-	reqSz = NewSummaryVec(
-		SummaryOpts{
-			Name: reqSz.desc.canonName,
-			Help: reqSz.desc.help,
-		},
-		reqSz.desc.variableLabels,
-	)
-	resSz = NewSummaryVec(
-		SummaryOpts{
-			Name: resSz.desc.canonName,
-			Help: resSz.desc.help,
-		},
-		resSz.desc.variableLabels,
-	)
+	reqCnt.Reset()
+	reqDur.Reset()
+	reqSz.Reset()
+	resSz.Reset()
 
 	respBody := respBody("Howdy there!")
 
@@ -107,75 +79,50 @@ func TestInstrumentHandler(t *testing.T) {
 		t.Fatalf("expected body %s, got %s", "Howdy there!", string(resp.Body.Bytes()))
 	}
 
-	out := &dto.MetricFamily{}
-	// reqDur.Write(out)
-	// if out.GetType() != dto.MetricType_SUMMARY {
-	// 	t.Fatalf("expected type %d, got %s", dto.MetricType_SUMMARY, out.GetType())
-	// }
-	// if len(out.Metric) != 1 {
-	// 	t.Fatalf("expected single metric, got %d", len(out.Metric))
-	// }
-	// if len(out.Metric[0].Label) != 3 {
-	// 	t.Fatalf("expected triple labels, got %d", len(out.Metric[0].Label))
-	// }
-	// if out.Metric[0].Label[0].GetName() != "code" {
-	// 	t.Fatalf("expected label named code, got %s", out.Metric[0].Label[0].GetName())
-	// }
-	// if out.Metric[0].Label[0].GetValue() != "418" {
-	// 	t.Fatalf("expected label valued 418, got %s", out.Metric[0].Label[0].GetValue())
-	// }
-	// if out.Metric[0].Label[1].GetName() != "handler" {
-	// 	t.Fatalf("expected label named handler, got %s", out.Metric[0].Label[1].GetName())
-	// }
-	// if out.Metric[0].Label[1].GetValue() != "test-handler" {
-	// 	t.Fatalf("expected label valued test-handler, got %s", out.Metric[0].Label[1].GetValue())
-	// }
-	// if out.Metric[0].Label[2].GetName() != "method" {
-	// 	t.Fatalf("expected label named method, got %s", out.Metric[0].Label[2].GetName())
-	// }
-	// if out.Metric[0].Label[2].GetValue() != "get" {
-	// 	t.Fatalf("expected label valued get, got %s", out.Metric[0].Label[2].GetValue())
-	// }
-	// if out.Metric[0].Counter == nil {
-	// 	t.Fatal("expected non-nil counter")
-	// }
-	// if out.Metric[0].Counter.GetValue() != 1 {
-	// 	t.Fatalf("expected count of 1, got %d", out.Metric[0].Counter.GetValue())
-	// }
+	if want, got := 1, len(reqDur.children); want != got {
+		t.Errorf("want %d children in reqDur, got %d", want, got)
+	}
+	sum, err := reqDur.GetMetricWithLabelValues("test-handler", "get", "418")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := &dto.Metric{}
+	sum.Write(out)
+	if want, got := "418", out.Label[0].GetValue(); want != got {
+		t.Errorf("want label value %q in reqDur, got %q", want, got)
+	}
+	if want, got := "test-handler", out.Label[1].GetValue(); want != got {
+		t.Errorf("want label value %q in reqDur, got %q", want, got)
+	}
+	if want, got := "get", out.Label[2].GetValue(); want != got {
+		t.Errorf("want label value %q in reqDur, got %q", want, got)
+	}
+	if want, got := uint64(1), out.Summary.GetSampleCount(); want != got {
+		t.Errorf("want sample count %d in reqDur, got %d", want, got)
+	}
 
 	out.Reset()
-	// reqCnt.Write(out)
-	// if out.GetType() != dto.MetricType_COUNTER {
-	// 	t.Fatalf("expected type %d, got %s", dto.MetricType_COUNTER, out.GetType())
-	// }
-	// if len(out.Metric) != 1 {
-	// 	t.Fatalf("expected single metric, got %d", len(out.Metric))
-	// }
-	// if len(out.Metric[0].Label) != 3 {
-	// 	t.Fatalf("expected triple labels, got %d", len(out.Metric[0].Label))
-	// }
-	// if out.Metric[0].Label[0].GetName() != "code" {
-	// 	t.Fatalf("expected label named code, got %s", out.Metric[0].Label[0].GetName())
-	// }
-	// if out.Metric[0].Label[0].GetValue() != "418" {
-	// 	t.Fatalf("expected label valued 418, got %s", out.Metric[0].Label[0].GetValue())
-	// }
-	// if out.Metric[0].Label[1].GetName() != "handler" {
-	// 	t.Fatalf("expected label named handler, got %s", out.Metric[0].Label[1].GetName())
-	// }
-	// if out.Metric[0].Label[1].GetValue() != "test-handler" {
-	// 	t.Fatalf("expected label valued test-handler, got %s", out.Metric[0].Label[1].GetValue())
-	// }
-	// if out.Metric[0].Label[2].GetName() != "method" {
-	// 	t.Fatalf("expected label named method, got %s", out.Metric[0].Label[2].GetName())
-	// }
-	// if out.Metric[0].Label[2].GetValue() != "get" {
-	// 	t.Fatalf("expected label valued get, got %s", out.Metric[0].Label[2].GetValue())
-	// }
-	// if out.Metric[0].Counter == nil {
-	// 	t.Fatal("expected non-nil counter")
-	// }
-	// if out.Metric[0].Counter.GetValue() != 1 {
-	// 	t.Fatalf("expected count of 1, got %f", out.Metric[0].Counter.GetValue())
-	// }
+	if want, got := 1, len(reqCnt.children); want != got {
+		t.Errorf("want %d children in reqCnt, got %d", want, got)
+	}
+	cnt, err := reqCnt.GetMetricWithLabelValues("test-handler", "get", "418")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cnt.Write(out)
+	if want, got := "418", out.Label[0].GetValue(); want != got {
+		t.Errorf("want label value %q in reqCnt, got %q", want, got)
+	}
+	if want, got := "test-handler", out.Label[1].GetValue(); want != got {
+		t.Errorf("want label value %q in reqCnt, got %q", want, got)
+	}
+	if want, got := "get", out.Label[2].GetValue(); want != got {
+		t.Errorf("want label value %q in reqCnt, got %q", want, got)
+	}
+	if out.Counter == nil {
+		t.Fatal("expected non-nil counter in reqCnt")
+	}
+	if want, got := 1., out.Counter.GetValue(); want != got {
+		t.Errorf("want reqCnt of %f, got %f", want, got)
+	}
 }

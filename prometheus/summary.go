@@ -233,7 +233,7 @@ func (s *summary) fullCompact() {
 }
 
 func (s *summary) needFullCompact() bool {
-	return !(s.est == nil && len(s.hotBuf) == 0)
+	return s.est != nil || len(s.hotBuf) != 0
 }
 
 func (s *summary) maybeFlush() {
@@ -267,10 +267,7 @@ func (s *summary) Write(out *dto.Metric) {
 	s.bufMtx.Lock()
 	s.mtx.Lock()
 
-	sum := &dto.Summary{
-		SampleCount: proto.Uint64(s.cnt),
-		SampleSum:   proto.Float64(s.sum),
-	}
+	sum := &dto.Summary{}
 
 	if s.needFullCompact() {
 		s.fullCompact()
@@ -285,6 +282,8 @@ func (s *summary) Write(out *dto.Metric) {
 		sum.Quantile = qs
 
 	}
+	sum.SampleCount = proto.Uint64(s.cnt)
+	sum.SampleSum = proto.Float64(s.sum)
 
 	s.maybeFlush()
 
