@@ -19,7 +19,9 @@ import (
 	dto "github.com/prometheus/client_model/go"
 )
 
-// Metric models any sort of telemetric data you wish to export to Prometheus.
+// A Metric models a single sample value with its meta data being exported to
+// Prometheus. Users can implement their own Metric types (but that should be
+// rarely needed). See the example for SelfCollector.
 type Metric interface {
 	// Desc returns the descriptor for the Metric. This method idempotently
 	// returns the same descriptor throughout the lifetime of the

@@ -392,10 +392,10 @@ func (r *registry) writePB(w io.Writer, writeEncoded encoder) (int, error) {
 
 	if r.metricFamilyInjectionHook != nil {
 		for _, mf := range r.metricFamilyInjectionHook() {
-			if _, exists := metricFamiliesByName[*mf.Name]; exists {
+			if _, exists := metricFamiliesByName[mf.GetName()]; exists {
 				return 0, fmt.Errorf("metric family with duplicate name injected: %s", mf)
 			}
-			metricFamiliesByName[*mf.Name] = mf
+			metricFamiliesByName[mf.GetName()] = mf
 		}
 	}
 
@@ -426,10 +426,10 @@ func (r *registry) writePB(w io.Writer, writeEncoded encoder) (int, error) {
 func (r *registry) checkConsistency(metricFamily *dto.MetricFamily, dtoMetric *dto.Metric, desc *Desc, metricHashes map[uint64]struct{}) error {
 
 	// Type consistency with metric family.
-	if *metricFamily.Type == dto.MetricType_GAUGE && dtoMetric.Gauge == nil ||
-		*metricFamily.Type == dto.MetricType_COUNTER && dtoMetric.Counter == nil ||
-		*metricFamily.Type == dto.MetricType_SUMMARY && dtoMetric.Summary == nil ||
-		*metricFamily.Type == dto.MetricType_UNTYPED && dtoMetric.Untyped == nil {
+	if metricFamily.GetType() == dto.MetricType_GAUGE && dtoMetric.Gauge == nil ||
+		metricFamily.GetType() == dto.MetricType_COUNTER && dtoMetric.Counter == nil ||
+		metricFamily.GetType() == dto.MetricType_SUMMARY && dtoMetric.Summary == nil ||
+		metricFamily.GetType() == dto.MetricType_UNTYPED && dtoMetric.Untyped == nil {
 		return fmt.Errorf(
 			"collected metric %q is not a %s",
 			dtoMetric, metricFamily.Type,
@@ -437,10 +437,10 @@ func (r *registry) checkConsistency(metricFamily *dto.MetricFamily, dtoMetric *d
 	}
 
 	// Desc consistency with metric family.
-	if *metricFamily.Help != desc.help {
+	if metricFamily.GetHelp() != desc.help {
 		return fmt.Errorf(
 			"collected metric %q has help %q but should have %q",
-			dtoMetric, desc.help, *metricFamily.Help,
+			dtoMetric, desc.help, metricFamily.GetHelp(),
 		)
 	}
 
@@ -461,8 +461,8 @@ func (r *registry) checkConsistency(metricFamily *dto.MetricFamily, dtoMetric *d
 	sort.Sort(LabelPairSorter(lpsFromDesc))
 	for i, lpFromDesc := range lpsFromDesc {
 		lpFromMetric := dtoMetric.Label[i]
-		if *lpFromDesc.Name != *lpFromMetric.Name ||
-			lpFromDesc.Value != nil && *lpFromDesc.Value != *lpFromMetric.Value {
+		if lpFromDesc.GetName() != lpFromMetric.GetName() ||
+			lpFromDesc.Value != nil && lpFromDesc.GetValue() != lpFromMetric.GetValue() {
 			return fmt.Errorf(
 				"labels in collected metric %q are inconsistent with descriptor %s",
 				dtoMetric, desc,
@@ -477,7 +477,7 @@ func (r *registry) checkConsistency(metricFamily *dto.MetricFamily, dtoMetric *d
 	h.Write(buf.Bytes())
 	for _, lp := range dtoMetric.Label {
 		buf.Reset()
-		buf.WriteString(*lp.Value)
+		buf.WriteString(lp.GetValue())
 		h.Write(buf.Bytes())
 	}
 	metricHash := h.Sum64()
@@ -602,8 +602,8 @@ func (s metricSorter) Swap(i, j int) {
 
 func (s metricSorter) Less(i, j int) bool {
 	for n, lp := range s[i].Label {
-		vi := *lp.Value
-		vj := *s[j].Label[n].Value
+		vi := lp.GetValue()
+		vj := s[j].Label[n].GetValue()
 		if vi != vj {
 			return vi < vj
 		}
