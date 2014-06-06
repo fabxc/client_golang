@@ -2,7 +2,7 @@
 This is the [Prometheus](http://www.prometheus.io) telemetric
 instrumentation client [Go](http://golang.org) client library.  It
 enable authors to define process-space metrics for their servers and
-expose them through a web services interface for extraction,
+expose them through a web service interface for extraction,
 aggregation, and a whole slew of other post processing techniques.
 
 # Installing
@@ -19,34 +19,35 @@ import (
 )
 
 var (
-	indexed = prometheus.NewCounter(prometheus.CounterDesc{prometheus.Desc{
+	indexed = prometheus.NewCounter(prometheus.CounterOpts{
 		Namespace: "my_company",
 		Subsystem: "indexer",
 		Name:      "documents_indexed",
 		Help:      "The number of documents indexed.",
-	}})
-	searched = prometheus.NewCounter(prometheus.CounterDesc{prometheus.Desc{
+	})
+	size = prometheus.NewGauge(prometheus.GaugeOpts{
 		Namespace: "my_company",
-		Subsystem: "root",
-		Name:      "documents_searched",
-		Help:      "The number of user queries to the index."}})
+		Subsystem: "storage",
+		Name:      "documents_total_size_bytes",
+		Help:      "The total size of all documents in the storage."}})
 )
-
+ 
 func main() {
-	http.Handle("/metrics", prometheus.Handler)
+	http.Handle("/metrics", prometheus.Handler())
 
 	indexed.Inc()
-	searched.Set(5)
+	size.Set(5)
 
 	http.ListenAndServe(":8080", nil)
 }
 
 func init() {
 	prometheus.MustRegister(indexed)
-	prometheus.MustRegister(searched)
+	prometheus.MustRegister(size)
 }
 ```
 
 # Documentation
-  * Auto-generated godoc for [Go Exposition Client]
-    (http://godoc.org/github.com/prometheus/client_golang/prometheus).
+
+The [godoc documentation](http://godoc.org/github.com/prometheus/client_golang/prometheus)
+has all the details and many more examples.

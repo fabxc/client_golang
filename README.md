@@ -5,14 +5,12 @@ functions, and there is separate documentation for each respective
 component.  You will want to select the appropriate topic below to
 continue your journey:
 
-  1. Telemetric instrumentation of servers written in Go and
-     exposition through a web services interface.
+  1. See the [exposition library](prometheus/README.md) if you want to
+     export metrics to a Prometheus server or pushgateway
 
-     See the [exposition library](prometheus/README.md) for more.
-
-  2. Processing of remote telemetric data.
-
-     See the [consumption library](extraction/README.md) for more.
+  2. See the [consumption library](extraction/README.md) if you want to
+     process metrics exported by a Prometheus client. (The Prometheus server
+     is using that library.)
 
 # Getting Started
 
@@ -23,4 +21,8 @@ continue your journey:
     $ go test ./...
 
 # Continuous Integration
-[![Build Status](https://secure.travis-ci.org/prometheus/client_golang.png?branch=master)](http://travis-ci.org/prometheus/client_golang)
+[![Build Status](https://secure.travis-ci.org/prometheus/client_golang.png?branch=master)]()
+
+##  Contributing
+
+See the contributing guidelines for the [Prometheus server](https://github.com/prometheus/prometheus/blob/master/CONTRIBUTING.md).

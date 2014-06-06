@@ -64,11 +64,10 @@ $(GOCC): $(BUILD_PATH)/root $(BUILD_PATH)/cache/$(GOPKG)
 	touch $@
 
 build: source_path dependencies
-	$(MAKE) -C prometheus build
-	$(MAKE) -C examples build
+	$(GO) build ./...
 
 dependencies: source_path $(GOCC)
-	$(GO) get -d
+	$(GO) get -d -t ./...
 
 test: build
 	$(GO) test ./...
@@ -77,8 +76,7 @@ benchmark: build
 	$(GO) test -benchmem -test.bench="$(BENCHMARK_FILTER)" ./...
 
 advice: test
-	$(MAKE) -C prometheus advice
-	$(MAKE) -C examples advice
+	$(GO) vet ./...
 
 format:
 	find . -iname '*.go' | grep -v './.build/' | xargs -n1 -P1 $(GOFMT) -w -s=true
@@ -96,7 +94,6 @@ documentation: search_index
 	$(GODOC) -http=:6060 -index -index_files='search_index'
 
 clean:
-	$(MAKE) -C examples clean
 	rm -rf $(MAKE_ARTIFACTS)
 	find . -iname '*~' -exec rm -f '{}' ';'
 	find . -iname '*#' -exec rm -f '{}' ';'
