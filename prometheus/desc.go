@@ -25,22 +25,16 @@ var (
 type Labels map[string]string
 
 // Desc is a the descriptor for all Prometheus metrics. It is essentially the
-// immutable meta-data for a metric. (Any mutations to Desc instances will be
-// performed internally by the prometheus package. Users will only ever set
-// field values at initialization time.)
-//
-// Upon registration, Prometheus automatically materializes fully-qualified
-// metric names by joining Namespace, Subsystem, and Name with "_". It is
-// mandatory to provide a non-empty strings for Name and Help. All other fields
-// are optional and may be left at their zero values.
+// immutable meta-data for a metric. The normal Metric implementations included
+// in this library manage their Desc under the hood. Users only have to deal
+// with Desc if they use advanced features like the ExpvarCollector or custom
+// Collectors and Metrics.
 //
 // Descriptors registered with the same registry have to fulfill certain
-// consistency and uniqueness criteria if they share the same fully-qualified
-// name. (Take into account that you may end up with the same fully-qualified
-// even with different settings for Namespace, Subsystem, and Name.) Descriptors
-// that share a fully-qualified name must also have the same Type, the same
-// Help, and the same label names (aka label dimensions) in each, ConstLabels
-// and VariableLabels, but they must differ in the values of the ConstLabels.
+// consistency and uniqueness criteria if they share the same canonical
+// name. They must also have the same Type, the same Help, and the same label
+// names (aka label dimensions) in each, constLabels and variableLabels, but
+// they must differ in the values of the ConstLabels.
 type Desc struct {
 	// canonName has been built from Namespace, Subsystem, and Name.
 	canonName string
@@ -67,7 +61,8 @@ type Desc struct {
 
 // NewDesc allocates and initializes a new Desc. Errors are recorded in the Desc
 // and will be reported on registration time. variableLabels and constLabels can
-// be nil if no such labels should be set.
+// be nil if no such labels should be set. canonName and help must not be empty
+// strings.
 func NewDesc(canonName, help string, variableLabels []string, constLabels Labels) *Desc {
 	d := &Desc{
 		canonName:      canonName,

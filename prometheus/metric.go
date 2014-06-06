@@ -80,6 +80,13 @@ type Opts struct {
 	ConstLabels Labels
 }
 
+// BuildCanonName joins the given three name components by "_". Empty name
+// components are ignored. If the name parameter itself is empty, an empty
+// string is returned, no matter what. Metric implementations included in this
+// library use this function internally to generate the canonical metric name
+// from the name component in their Opts. Users of the library will only have a
+// use for this function if they implement their own Metric or instantiate a
+// Desc (with NewDesc) directly.
 func BuildCanonName(namespace, subsystem, name string) string {
 	if name == "" {
 		return ""

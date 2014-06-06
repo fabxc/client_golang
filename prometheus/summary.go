@@ -26,8 +26,6 @@ import (
 	dto "github.com/prometheus/client_model/go"
 )
 
-// TODO: Timer for summary. (???)
-
 // Summary captures individual observations from an event or sample stream and
 // summarizes them in a manner similar to traditional summary statistics:
 // 1. sum of observations, 2. observation count, 3. rank estimations.
@@ -203,9 +201,9 @@ func (s *summary) slowIngest() {
 	s.hotBuf, s.coldBuf = s.coldBuf, s.hotBuf
 	s.hotBuf = s.hotBuf[0:0]
 
-	// Unblock the original goroutine that was responsible for the mutation that
-	// triggered the compaction.  But hold onto the global non-buffer state mutex
-	// until the operation finishes.
+	// Unblock the original goroutine that was responsible for the mutation
+	// that triggered the compaction.  But hold onto the global non-buffer
+	// state mutex until the operation finishes.
 	go func() {
 		s.partialCompact()
 		s.mtx.Unlock()

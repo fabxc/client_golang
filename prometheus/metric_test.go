@@ -13,4 +13,44 @@
 
 package prometheus
 
-// TODO add tests for metric
+import (
+	"fmt"
+	"sort"
+	"testing"
+
+	"code.google.com/p/goprotobuf/proto"
+
+	dto "github.com/prometheus/client_model/go"
+)
+
+func TestBuildCanonName(t *testing.T) {
+	scenarios := []struct{ namespace, subsystem, name, result string }{
+		{"a", "b", "c", "a_b_c"},
+		{"", "b", "c", "b_c"},
+		{"a", "", "c", "a_c"},
+		{"", "", "c", "c"},
+		{"a", "b", "", ""},
+		{"a", "", "", ""},
+		{"", "b", "", ""},
+		{" ", "", "", ""},
+	}
+
+	for i, s := range scenarios {
+		if want, got := s.result, BuildCanonName(s.namespace, s.subsystem, s.name); want != got {
+			t.Errorf("%d. want %s, got %s", i, want, got)
+		}
+	}
+}
+
+func ExampleLabelPairSorter() {
+	labelPairs := []*dto.LabelPair{
+		&dto.LabelPair{Name: proto.String("status"), Value: proto.String("404")},
+		&dto.LabelPair{Name: proto.String("method"), Value: proto.String("get")},
+	}
+
+	sort.Sort(LabelPairSorter(labelPairs))
+
+	fmt.Println(labelPairs)
+	// Output:
+	// [name:"method" value:"get"  name:"status" value:"404" ]
+}
