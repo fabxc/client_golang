@@ -134,6 +134,17 @@ func Unregister(m Collector) bool {
 	return defRegistry.Unregister(m)
 }
 
+// SetMetricFamilyInjectionHook sets a function that is called whenever metrics
+// are collected. The hook function must be set before metrics collection begins
+// (i.e. call SetMetricFamilyInjectionHook before setting the http handler.) The
+// MetricsFamily protobufs returned by the hook function are added to the
+// delivered metrics. Each returned MetricFamily must have a unique name (also
+// taking into account the MetricFamilies created in the regular way).
+//
+// This is a way to directly inject MetricFamily protobufs managed and owned by
+// the caller. The caller has full responsibility. No sanity checks are
+// performed on the returned protobufs (besides the name checks described
+// above). The function must be callable at any time and concurrently.
 func SetMetricFamilyInjectionHook(hook func() []*dto.MetricFamily) {
 	defRegistry.metricFamilyInjectionHook = hook
 }
@@ -302,23 +313,16 @@ func (r *registry) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	buf := r.getBuf()
 	defer r.giveBuf(buf)
 	header := w.Header()
-	header.Set(contentTypeHeader, contentType)
 	if _, err := r.writePB(buf, enc); err != nil {
 		if r.panicOnCollectError {
 			panic(err)
 		}
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
+		header.Set(contentTypeHeader, "text/plain")
+		fmt.Fprintf(w, "An error has occurred:\n\n%s", err)
 		return
 	}
-	if _, err := r.writeExternalPB(buf, enc); err != nil {
-		if r.panicOnCollectError {
-			panic(err)
-		}
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
-		return
-	}
+	header.Set(contentTypeHeader, contentType)
 	w.Write(buf.Bytes())
 }
 
@@ -332,6 +336,7 @@ func (r *registry) writePB(w io.Writer, writeEncoded encoder) (int, error) {
 	wg := sync.WaitGroup{}
 
 	// Scatter.
+	// (Collectors could be complex and slow, so we call them all at once.)
 	r.mtx.RLock()
 	wg.Add(len(r.collectorsByID))
 	go func() {
@@ -348,6 +353,9 @@ func (r *registry) writePB(w io.Writer, writeEncoded encoder) (int, error) {
 
 	// Gather.
 	for metric := range metricChan {
+		// This could be done concurrently, too, but it required locking
+		// of metricFamiliesByName (and of metricHashes if checks are
+		// enabled). Most likely not worth it.
 		desc := metric.Desc()
 		metricFamily, ok := metricFamiliesByName[desc.canonName]
 		if !ok {
@@ -380,6 +388,15 @@ func (r *registry) writePB(w io.Writer, writeEncoded encoder) (int, error) {
 			}
 		}
 		metricFamily.Metric = append(metricFamily.Metric, dtoMetric)
+	}
+
+	if r.metricFamilyInjectionHook != nil {
+		for _, mf := range r.metricFamilyInjectionHook() {
+			if _, exists := metricFamiliesByName[*mf.Name]; exists {
+				return 0, fmt.Errorf("metric family with duplicate name injected: %s", mf)
+			}
+			metricFamiliesByName[*mf.Name] = mf
+		}
 	}
 
 	// Now that MetricFamilies are all set, sort their Metrics
@@ -481,21 +498,6 @@ func (r *registry) checkConsistency(metricFamily *dto.MetricFamily, dtoMetric *d
 	}
 
 	return nil
-}
-
-func (r *registry) writeExternalPB(w io.Writer, writeEncoded encoder) (int, error) {
-	var written int
-	if r.metricFamilyInjectionHook == nil {
-		return 0, nil
-	}
-	for _, f := range r.metricFamilyInjectionHook() {
-		i, err := writeEncoded(w, f)
-		written += i
-		if err != nil {
-			return i, err
-		}
-	}
-	return written, nil
 }
 
 func (r *registry) getBuf() *bytes.Buffer {
