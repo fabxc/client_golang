@@ -44,11 +44,11 @@ var errInconsistentCardinality = errors.New("inconsistent label cardinality")
 type value struct {
 	SelfCollector
 
-	mtx       sync.RWMutex
-	desc      *Desc
-	valType   ValueType
-	val       float64
-	labelVals []string
+	mtx        sync.RWMutex
+	desc       *Desc
+	valType    ValueType
+	val        float64
+	labelPairs []*dto.LabelPair
 }
 
 // newValue returns a newly allocated Value with the given Desc, ValueType,
@@ -59,10 +59,10 @@ func newValue(desc *Desc, valueType ValueType, val float64, labelValues ...strin
 		panic(errInconsistentCardinality)
 	}
 	result := &value{
-		desc:      desc,
-		valType:   valueType,
-		val:       val,
-		labelVals: labelValues,
+		desc:       desc,
+		valType:    valueType,
+		val:        val,
+		labelPairs: makeLabelPairs(desc, labelValues),
 	}
 	result.Init(result)
 	return result
@@ -103,7 +103,7 @@ func (v *value) Write(out *dto.Metric) {
 	val := v.val
 	v.mtx.RUnlock()
 
-	populateMetric(v.desc, v.valType, val, v.labelVals, out)
+	populateMetric(v.valType, val, v.labelPairs, out)
 }
 
 // NewConstMetric returns a metric with one fixed value that cannot be
@@ -117,10 +117,10 @@ func NewConstMetric(desc *Desc, valueType ValueType, value float64, labelValues 
 		return nil, errInconsistentCardinality
 	}
 	return &constMetric{
-		desc:        desc,
-		valType:     valueType,
-		val:         value,
-		labelValues: labelValues,
+		desc:       desc,
+		valType:    valueType,
+		val:        value,
+		labelPairs: makeLabelPairs(desc, labelValues),
 	}, nil
 }
 
@@ -135,10 +135,10 @@ func MustNewConstMetric(desc *Desc, valueType ValueType, value float64, labelVal
 }
 
 type constMetric struct {
-	desc        *Desc
-	valType     ValueType
-	val         float64
-	labelValues []string
+	desc       *Desc
+	valType    ValueType
+	val        float64
+	labelPairs []*dto.LabelPair
 }
 
 func (m *constMetric) Desc() *Desc {
@@ -146,26 +146,16 @@ func (m *constMetric) Desc() *Desc {
 }
 
 func (m *constMetric) Write(out *dto.Metric) {
-	populateMetric(m.desc, m.valType, m.val, m.labelValues, out)
+	populateMetric(m.valType, m.val, m.labelPairs, out)
 }
 
 func populateMetric(
-	d *Desc,
 	t ValueType,
 	v float64,
-	labelValues []string,
+	labelPairs []*dto.LabelPair,
 	m *dto.Metric,
 ) {
-	labels := make([]*dto.LabelPair, 0, len(d.constLabelPairs)+len(d.variableLabels))
-	labels = append(labels, d.constLabelPairs...)
-	for i, n := range d.variableLabels {
-		labels = append(labels, &dto.LabelPair{
-			Name:  proto.String(n),
-			Value: proto.String(labelValues[i]),
-		})
-	}
-	sort.Sort(LabelPairSorter(labels))
-	m.Label = labels
+	m.Label = labelPairs
 	switch t {
 	case CounterValue:
 		m.Counter = &dto.Counter{Value: proto.Float64(v)}
@@ -176,4 +166,28 @@ func populateMetric(
 	default:
 		panic(fmt.Errorf("encountered unknown type %v", t))
 	}
+}
+
+func makeLabelPairs(desc *Desc, labelValues []string) []*dto.LabelPair {
+	totalLen := len(desc.variableLabels) + len(desc.constLabelPairs)
+	if totalLen == 0 {
+		// Super fast path.
+		return nil
+	}
+	if len(desc.variableLabels) == 0 {
+		// Moderately fast path.
+		return desc.constLabelPairs
+	}
+	labelPairs := make([]*dto.LabelPair, 0, totalLen)
+	for i, n := range desc.variableLabels {
+		labelPairs = append(labelPairs, &dto.LabelPair{
+			Name:  proto.String(n),
+			Value: proto.String(labelValues[i]),
+		})
+	}
+	for _, lp := range desc.constLabelPairs {
+		labelPairs = append(labelPairs, lp)
+	}
+	sort.Sort(LabelPairSorter(labelPairs))
+	return labelPairs
 }

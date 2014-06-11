@@ -17,7 +17,7 @@ import (
 	"testing"
 )
 
-func BenchmarkPrometheusCounter(b *testing.B) {
+func BenchmarkCounterWithLabelValues(b *testing.B) {
 	m := NewCounterVec(
 		CounterOpts{
 			Name: "benchmark_counter",
@@ -32,7 +32,7 @@ func BenchmarkPrometheusCounter(b *testing.B) {
 	}
 }
 
-func BenchmarkPrometheusCounterWithMappedLabels(b *testing.B) {
+func BenchmarkCounterWithMappedLabels(b *testing.B) {
 	m := NewCounterVec(
 		CounterOpts{
 			Name: "benchmark_counter",
@@ -47,7 +47,7 @@ func BenchmarkPrometheusCounterWithMappedLabels(b *testing.B) {
 	}
 }
 
-func BenchmarkPrometheusCounterWithPreparedMappedLabels(b *testing.B) {
+func BenchmarkCounterWithPreparedMappedLabels(b *testing.B) {
 	m := NewCounterVec(
 		CounterOpts{
 			Name: "benchmark_counter",
@@ -63,7 +63,7 @@ func BenchmarkPrometheusCounterWithPreparedMappedLabels(b *testing.B) {
 	}
 }
 
-func BenchmarkPrometheusCounterNoLabels(b *testing.B) {
+func BenchmarkCounterNoLabels(b *testing.B) {
 	m := NewCounter(CounterOpts{
 		Name: "benchmark_counter",
 		Help: "A counter to benchmark it.",
@@ -75,7 +75,7 @@ func BenchmarkPrometheusCounterNoLabels(b *testing.B) {
 	}
 }
 
-func BenchmarkPrometheusGauge(b *testing.B) {
+func BenchmarkGaugeWithLabelValues(b *testing.B) {
 	m := NewGaugeVec(
 		GaugeOpts{
 			Name: "benchmark_gauge",
@@ -90,7 +90,7 @@ func BenchmarkPrometheusGauge(b *testing.B) {
 	}
 }
 
-func BenchmarkPrometheusGaugeNoLabels(b *testing.B) {
+func BenchmarkGaugeNoLabels(b *testing.B) {
 	m := NewGauge(GaugeOpts{
 		Name: "benchmark_gauge",
 		Help: "A gauge to benchmark it.",
@@ -102,7 +102,7 @@ func BenchmarkPrometheusGaugeNoLabels(b *testing.B) {
 	}
 }
 
-func BenchmarkPrometheusSummary(b *testing.B) {
+func BenchmarkSummaryWithLabelValues(b *testing.B) {
 	m := NewSummaryVec(
 		SummaryOpts{
 			Name: "benchmark_summary",
@@ -117,7 +117,7 @@ func BenchmarkPrometheusSummary(b *testing.B) {
 	}
 }
 
-func BenchmarkPrometheusSummaryNoLabels(b *testing.B) {
+func BenchmarkSummaryNoLabels(b *testing.B) {
 	m := NewSummary(SummaryOpts{
 		Name: "benchmark_summary",
 		Help: "A summary to benchmark it.",

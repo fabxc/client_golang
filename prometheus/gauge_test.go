@@ -84,11 +84,10 @@ outer:
 func TestGaugeConcurrency(t *testing.T) {
 	it := func(n uint32) bool {
 		mutations := int(n % 10000)
-		concLevel := int((n % 15) + 1)
+		concLevel := int(n%15 + 1)
 
-		start := &sync.WaitGroup{}
+		var start, end sync.WaitGroup
 		start.Add(1)
-		end := &sync.WaitGroup{}
 		end.Add(concLevel)
 
 		sStream := make(chan float64, mutations*concLevel)
@@ -106,9 +105,9 @@ func TestGaugeConcurrency(t *testing.T) {
 			Help: "no help can be found here",
 		})
 		for i := 0; i < concLevel; i++ {
-			vals := make([]float64, 0, mutations)
+			vals := make([]float64, mutations)
 			for j := 0; j < mutations; j++ {
-				vals = append(vals, rand.Float64()-0.5)
+				vals[j] = rand.Float64() - 0.5
 			}
 
 			go func(vals []float64) {
@@ -137,19 +136,18 @@ func TestGaugeConcurrency(t *testing.T) {
 func TestGaugeVecConcurrency(t *testing.T) {
 	it := func(n uint32) bool {
 		mutations := int(n % 10000)
-		concLevel := int((n % 15) + 1)
-		vecLength := int((n % 5) + 1)
+		concLevel := int(n%15 + 1)
+		vecLength := int(n%5 + 1)
 
-		start := &sync.WaitGroup{}
+		var start, end sync.WaitGroup
 		start.Add(1)
-		end := &sync.WaitGroup{}
 		end.Add(concLevel)
 
 		sStreams := make([]chan float64, vecLength)
 		results := make([]chan float64, vecLength)
 		done := make(chan struct{})
 
-		for i, _ := range sStreams {
+		for i := 0; i < vecLength; i++ {
 			sStreams[i] = make(chan float64, mutations*concLevel)
 			results[i] = make(chan float64)
 			go listenGaugeStream(sStreams[i], results[i], done)
@@ -168,17 +166,18 @@ func TestGaugeVecConcurrency(t *testing.T) {
 			[]string{"label"},
 		)
 		for i := 0; i < concLevel; i++ {
-			vals := make([]float64, 0, mutations)
+			vals := make([]float64, mutations)
+			pick := make([]int, mutations)
 			for j := 0; j < mutations; j++ {
-				vals = append(vals, rand.Float64()-0.5)
+				vals[j] = rand.Float64() - 0.5
+				pick[j] = rand.Intn(vecLength)
 			}
 
 			go func(vals []float64) {
 				start.Wait()
-				for _, v := range vals {
-					i := rand.Intn(vecLength)
-					sStreams[i] <- v
-					gge.WithLabelValues(string('A' + i)).Add(v)
+				for i, v := range vals {
+					sStreams[pick[i]] <- v
+					gge.WithLabelValues(string('A' + pick[i])).Add(v)
 				}
 				end.Done()
 			}(vals)

@@ -624,6 +624,9 @@ func ExampleRegister() {
 	taskCounterForWorker42.Inc()
 	taskCounterForWorker2001.Inc()
 
+	// Yet another approach would be to turn the workers themselves into
+	// Collectors and register them. See the Collector example for details.
+
 	// Output:
 	// taskCounter registered.
 	// taskCounterVec not registered: a previously registered descriptor with the same fully-qualified name as Desc{fqName: "worker_pool_completed_tasks_total", help: "Total number of tasks completed.", constLabels: {}, variableLables: [worker_id]} has different label names or a different help string

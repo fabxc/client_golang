@@ -21,7 +21,7 @@ import (
 	"time"
 
 	"code.google.com/p/goprotobuf/proto"
-	"github.com/streadway/quantile"
+	"github.com/bmizerany/perks/quantile" // TODO: Vendorize?
 
 	dto "github.com/prometheus/client_model/go"
 )
@@ -36,25 +36,23 @@ type Summary interface {
 	Observe(float64)
 }
 
-// DefObjectives are the default Summary quantile values and their respective
-// levels of precision.  These should be suitable for most industrial purposes.
+// DefObjectives are the default Summary quantile values.
 var (
-	DefObjectives = map[float64]float64{
-		0.5:  0.05,
-		0.90: 0.01,
-		0.99: 0.001,
-	}
+	DefObjectives = []float64{0.5, 0.9, 0.99}
 )
 
 const (
-	// DefFlush is the default flush interval for Summary metrics.
-	DefFlush time.Duration = 15 * time.Minute
-	// NoFlush indicates that a Summary should never flush its metrics.
-	NoFlush = -1
+	// DefMaxAge is the default duration for which observations stay
+	// relevant.
+	DefMaxAge time.Duration = 10 * time.Minute
+	// DefAgeBuckets is the default number of buckets used to calculate the
+	// age of observations.
+	DefAgeBuckets = 10
+	// DefBufCap is the standard buffer size for collecting Summary observations.
+	DefBufCap = 500
+	// DefEpsilon is the default error epsilon for the quantile rank estimates.
+	DefEpsilon = 0.001
 )
-
-// DefBufCap is the standard buffer size for collecting Summary observations.
-const DefBufCap = 1024
 
 // SummaryOpts bundles the options for creating a Summary metric. It is
 // mandatory to set Name and Help to a non-empty string. All other fields are
@@ -85,20 +83,30 @@ type SummaryOpts struct {
 	// part of the metric name).
 	ConstLabels Labels
 
-	// Objectives defines the quantile rank estimates with the tolerated
-	// level of error defined as the value. The default value is
+	// Objectives defines the quantile rank estimates. The default value is
 	// DefObjectives.
-	Objectives map[float64]float64
+	Objectives []float64
 
-	// FlushInter sets the interval at which the Summary's event stream
-	// samples are flushed.  This provides a stronger guarantee that stale
-	// data won't crowd out more recent samples. The default value is
-	// DefFlush.
-	FlushInter time.Duration
+	// MaxAge defines the duration for which an observation stays relevant
+	// for the summary. Must be positive. The default value is DefMaxAge.
+	MaxAge time.Duration
+
+	// AgeBuckets is the number of buckets used to exclude observations that
+	// are older than MaxAge from the summary. A higher number has a
+	// resource penalty so only increase it if the higher resolution is
+	// really required. The default value is DefAgeBuckets.
+	AgeBuckets uint32
 
 	// BufCap defines the default sample stream buffer size.  The default
-	// value of DefBufCap should suffice for most uses.
-	BufCap int
+	// value of DefBufCap should suffice for most uses. If there is a need
+	// to increase the value, a multiple of 500 is recommended (because that
+	// is the internal buffer size of the underlying package
+	// "github.com/bmizerany/perks/quantile").
+	BufCap uint32
+
+	// Epsilon is the error epsilon for the quantile rank estimate. Must be
+	// positive. The default is DefEpsilon.
+	Epsilon float64
 }
 
 // NewSummary generates a new Summary from the provided descriptor and options.
@@ -119,192 +127,202 @@ func newSummary(desc *Desc, opts SummaryOpts, labelValues ...string) Summary {
 		panic(errInconsistentCardinality)
 	}
 
-	invs := make([]quantile.Estimate, 0, len(opts.Objectives))
-	for rank, acc := range opts.Objectives {
-		invs = append(invs, quantile.Known(rank, acc))
+	if len(opts.Objectives) == 0 {
+		opts.Objectives = DefObjectives
 	}
 
-	switch {
-	case opts.BufCap < 0:
-		panic(fmt.Errorf("illegal buffer capacity BufCap=%d", opts.BufCap))
-	case opts.BufCap == 0:
+	if opts.MaxAge < 0 {
+		panic(fmt.Errorf("illegal max age MaxAge=%v", opts.MaxAge))
+	}
+	if opts.MaxAge == 0 {
+		opts.MaxAge = DefMaxAge
+	}
+
+	if opts.AgeBuckets == 0 {
+		opts.AgeBuckets = DefAgeBuckets
+	}
+
+	if opts.BufCap == 0 {
 		opts.BufCap = DefBufCap
 	}
 
-	result := &summary{
+	if opts.Epsilon < 0 {
+		panic(fmt.Errorf("illegal value for Epsilon=%f", opts.Epsilon))
+	}
+	if opts.Epsilon == 0. {
+		opts.Epsilon = DefEpsilon
+	}
+
+	s := &summary{
 		desc: desc,
 
-		labelValues: labelValues,
-		hotBuf:      make([]float64, 0, opts.BufCap),
-		coldBuf:     make([]float64, 0, opts.BufCap),
-		lastFlush:   time.Now(),
-		invs:        invs,
-	}
+		objectives: opts.Objectives,
+		epsilon:    opts.Epsilon,
 
-	switch {
-	case opts.FlushInter < 0: // Includes NoFlush.
-		result.flushInter = 0
-	case opts.FlushInter == 0:
-		result.flushInter = DefFlush
-	default:
-		result.flushInter = opts.FlushInter
-	}
+		labelPairs: makeLabelPairs(desc, labelValues),
 
-	if len(opts.Objectives) == 0 {
-		result.objectives = DefObjectives
-	} else {
-		result.objectives = opts.Objectives
+		hotBuf:         make([]float64, 0, opts.BufCap),
+		coldBuf:        make([]float64, 0, opts.BufCap),
+		streamDuration: opts.MaxAge / time.Duration(opts.AgeBuckets),
 	}
+	s.mergedTailStreams = s.newStream()
+	s.mergedAllStreams = s.newStream()
+	s.headStreamExpTime = time.Now().Add(s.streamDuration)
+	s.hotBufExpTime = s.headStreamExpTime
 
-	result.Init(result) // Init self-collection.
-	return result
+	for i := uint32(0); i < opts.AgeBuckets; i++ {
+		s.streams = append(s.streams, s.newStream())
+	}
+	s.headStream = s.streams[0]
+
+	s.Init(s) // Init self-collection.
+	return s
 }
 
 type summary struct {
 	SelfCollector
 
-	bufMtx sync.Mutex
-	mtx    sync.Mutex
+	bufMtx sync.Mutex // Protects hotBuf and hotBufExpTime.
+	mtx    sync.Mutex // Protects every other moving part.
+	// Lock bufMtx before mtx if both are needed.
 
-	desc       *Desc
-	objectives map[float64]float64
-	flushInter time.Duration
+	desc *Desc
 
-	labelValues     []string
-	sum             float64
-	cnt             uint64
+	objectives []float64
+	epsilon    float64
+
+	labelPairs []*dto.LabelPair
+
+	sum float64
+	cnt uint64
+
 	hotBuf, coldBuf []float64
 
-	invs []quantile.Estimate
+	streams                          []*quantile.Stream
+	streamDuration                   time.Duration
+	headStreamIdx                    int
+	headStreamExpTime, hotBufExpTime time.Time
 
-	est *quantile.Estimator
-
-	lastFlush time.Time
+	headStream, mergedTailStreams, mergedAllStreams *quantile.Stream
 }
 
 func (s *summary) Desc() *Desc {
 	return s.desc
 }
 
-func (s *summary) newEst() {
-	s.est = quantile.New(s.invs...)
-}
+func (s *summary) Observe(v float64) {
+	s.bufMtx.Lock()
+	defer s.bufMtx.Unlock()
 
-func (s *summary) fastIngest(v float64) bool {
+	now := time.Now()
+	if now.After(s.hotBufExpTime) {
+		s.asyncFlush(now)
+	}
 	s.hotBuf = append(s.hotBuf, v)
-
-	return len(s.hotBuf) < cap(s.hotBuf)
+	if len(s.hotBuf) == cap(s.hotBuf) {
+		s.asyncFlush(now)
+	}
 }
 
-func (s *summary) slowIngest() {
+func (s *summary) Write(out *dto.Metric) {
+	sum := &dto.Summary{}
+	qs := make([]*dto.Quantile, 0, len(s.objectives))
+
+	s.bufMtx.Lock()
 	s.mtx.Lock()
-	s.hotBuf, s.coldBuf = s.coldBuf, s.hotBuf
-	s.hotBuf = s.hotBuf[0:0]
+
+	if len(s.hotBuf) != 0 {
+		s.swapBufs(time.Now())
+	}
+	s.bufMtx.Unlock()
+
+	s.flushColdBuf()
+	s.mergedAllStreams.Merge(s.mergedTailStreams.Samples())
+	s.mergedAllStreams.Merge(s.headStream.Samples())
+	sum.SampleCount = proto.Uint64(s.cnt)
+	sum.SampleSum = proto.Float64(s.sum)
+
+	for _, rank := range s.objectives {
+		qs = append(qs, &dto.Quantile{
+			Quantile: proto.Float64(rank),
+			Value:    proto.Float64(s.mergedAllStreams.Query(rank)),
+		})
+	}
+	s.mergedAllStreams.Reset()
+
+	s.mtx.Unlock()
+
+	if len(qs) > 0 {
+		sort.Sort(quantSort(qs))
+	}
+	sum.Quantile = qs
+
+	out.Summary = sum
+	out.Label = s.labelPairs
+}
+
+func (s *summary) newStream() *quantile.Stream {
+	stream := quantile.NewTargeted(s.objectives...)
+	stream.SetEpsilon(s.epsilon)
+	return stream
+}
+
+// asyncFlush needs bufMtx locked.
+func (s *summary) asyncFlush(now time.Time) {
+	s.mtx.Lock()
+	s.swapBufs(now)
 
 	// Unblock the original goroutine that was responsible for the mutation
 	// that triggered the compaction.  But hold onto the global non-buffer
 	// state mutex until the operation finishes.
 	go func() {
-		s.partialCompact()
+		s.flushColdBuf()
 		s.mtx.Unlock()
 	}()
 }
 
-func (s *summary) partialCompact() {
-	if s.est == nil {
-		s.newEst()
+// rotateStreams needs mtx AND bufMtx locked.
+func (s *summary) maybeRotateStreams() {
+	if s.hotBufExpTime.Equal(s.headStreamExpTime) {
+		// Fast return to avoid re-merging s.mergedTailStreams.
+		return
 	}
+	for !s.hotBufExpTime.Equal(s.headStreamExpTime) {
+		s.headStreamIdx++
+		if s.headStreamIdx >= len(s.streams) {
+			s.headStreamIdx = 0
+		}
+		s.headStream = s.streams[s.headStreamIdx]
+		s.headStream.Reset()
+		s.headStreamExpTime = s.headStreamExpTime.Add(s.streamDuration)
+	}
+	s.mergedTailStreams.Reset()
+	for _, stream := range s.streams {
+		if stream != s.headStream {
+			s.mergedTailStreams.Merge(stream.Samples())
+		}
+	}
+
+}
+
+// flushColdBuf needs mtx locked.
+func (s *summary) flushColdBuf() {
 	for _, v := range s.coldBuf {
-		s.est.Add(v)
+		s.headStream.Insert(v)
 		s.cnt++
 		s.sum += v
 	}
 	s.coldBuf = s.coldBuf[0:0]
+	s.maybeRotateStreams()
 }
 
-func (s *summary) fullCompact() {
-	s.partialCompact()
-	for _, v := range s.hotBuf {
-		s.est.Add(v)
-		s.cnt++
-		s.sum += v
+// swapBufs needs mtx AND bufMtx locked, coldBuf must be empty.
+func (s *summary) swapBufs(now time.Time) {
+	s.hotBuf, s.coldBuf = s.coldBuf, s.hotBuf
+	// hotBuf is now empty and gets new expiration set.
+	for now.After(s.hotBufExpTime) {
+		s.hotBufExpTime = s.hotBufExpTime.Add(s.streamDuration)
 	}
-	s.hotBuf = s.hotBuf[0:0]
-}
-
-func (s *summary) needFullCompact() bool {
-	return s.est != nil || len(s.hotBuf) != 0
-}
-
-func (s *summary) maybeFlush() {
-	if s.flushInter == 0 {
-		return
-	}
-
-	if time.Since(s.lastFlush) < s.flushInter {
-		return
-	}
-
-	s.flush()
-}
-
-func (s *summary) flush() {
-	s.est = nil
-	s.lastFlush = time.Now()
-}
-
-func (s *summary) Observe(v float64) {
-	s.bufMtx.Lock()
-	defer s.bufMtx.Unlock()
-	if ok := s.fastIngest(v); ok {
-		return
-	}
-
-	s.slowIngest()
-}
-
-func (s *summary) Write(out *dto.Metric) {
-	s.bufMtx.Lock()
-	s.mtx.Lock()
-
-	sum := &dto.Summary{}
-
-	if s.needFullCompact() {
-		s.fullCompact()
-		qs := make([]*dto.Quantile, 0, len(s.objectives))
-		for rank := range s.objectives {
-			qs = append(qs, &dto.Quantile{
-				Quantile: proto.Float64(rank),
-				Value:    proto.Float64(s.est.Get(rank)),
-			})
-		}
-
-		sum.Quantile = qs
-
-	}
-	sum.SampleCount = proto.Uint64(s.cnt)
-	sum.SampleSum = proto.Float64(s.sum)
-
-	s.maybeFlush()
-
-	s.mtx.Unlock()
-	s.bufMtx.Unlock()
-
-	if len(sum.Quantile) > 0 {
-		sort.Sort(quantSort(sum.Quantile))
-	}
-	labels := make([]*dto.LabelPair, 0, len(s.desc.constLabelPairs)+len(s.desc.variableLabels))
-	labels = append(labels, s.desc.constLabelPairs...)
-	for i, n := range s.desc.variableLabels {
-		labels = append(labels, &dto.LabelPair{
-			Name:  proto.String(n),
-			Value: proto.String(s.labelValues[i]),
-		})
-	}
-	sort.Sort(LabelPairSorter(labels))
-
-	out.Summary = sum
-	out.Label = labels
 }
 
 type quantSort []*dto.Quantile

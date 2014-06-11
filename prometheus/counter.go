@@ -89,9 +89,9 @@ func NewCounterVec(opts CounterOpts, labelNames []string) *CounterVec {
 			hash:     fnv.New64a(),
 			newMetric: func(lvs ...string) Metric {
 				result := &counter{value: value{
-					desc:      desc,
-					valType:   CounterValue,
-					labelVals: lvs,
+					desc:       desc,
+					valType:    CounterValue,
+					labelPairs: makeLabelPairs(desc, lvs),
 				}}
 				result.Init(result) // Init self-collection.
 				return result
