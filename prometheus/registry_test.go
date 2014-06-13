@@ -441,6 +441,8 @@ metric: <
 	}
 	for i, scenario := range scenarios {
 		registry := newRegistry()
+		registry.collectChecksEnabled = true
+
 		if scenario.withCounter {
 			registry.Register(metricVec)
 		}
