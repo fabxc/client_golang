@@ -86,15 +86,16 @@ func nowSeries(t ...time.Time) nower {
 
 // InstrumentHandler wraps the given http handler for instrumentation. It
 // registers four metric vector collectors (if not already done) and reports
-// http metrics to them: http_request_total, http_request_duration_seconds,
-// http_request_size_bytes, http_response_size_bytes. Each has three labels:
-// handler, method, code. The value of the handler label is set by the
-// handlerName parameter of this function.
+// http metrics to the (newly or already) registered collectors:
+// http_request_total (CounterVec), http_request_duration_seconds (SummaryVec),
+// http_request_size_bytes (SummaryVec), http_response_size_bytes
+// (SummaryVec). Each has three labels: handler, method, code. The value of the
+// handler label is set by the handlerName parameter of this function.
 func InstrumentHandler(handlerName string, handler http.Handler) http.HandlerFunc {
-	MustRegisterOrGet(reqCnt)
-	MustRegisterOrGet(reqDur)
-	MustRegisterOrGet(reqSz)
-	MustRegisterOrGet(resSz)
+	regReqCnt := MustRegisterOrGet(reqCnt).(*CounterVec)
+	regReqDur := MustRegisterOrGet(reqDur).(*SummaryVec)
+	regReqSz := MustRegisterOrGet(reqSz).(*SummaryVec)
+	regResSz := MustRegisterOrGet(resSz).(*SummaryVec)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		now := time.Now()
@@ -108,10 +109,10 @@ func InstrumentHandler(handlerName string, handler http.Handler) http.HandlerFun
 
 		method := sanitizeMethod(r.Method)
 		code := sanitizeCode(delegate.status)
-		reqCnt.WithLabelValues(handlerName, method, code).Inc()
-		reqDur.WithLabelValues(handlerName, method, code).Observe(elapsed)
-		resSz.WithLabelValues(handlerName, method, code).Observe(float64(delegate.written))
-		reqSz.WithLabelValues(handlerName, method, code).Observe(float64(<-out))
+		regReqCnt.WithLabelValues(handlerName, method, code).Inc()
+		regReqDur.WithLabelValues(handlerName, method, code).Observe(elapsed)
+		regResSz.WithLabelValues(handlerName, method, code).Observe(float64(delegate.written))
+		regReqSz.WithLabelValues(handlerName, method, code).Observe(float64(<-out))
 	})
 }
 

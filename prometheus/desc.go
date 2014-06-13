@@ -21,20 +21,31 @@ var (
 	labelNameRE  = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 )
 
-// Labels represents a collection of label name -> value mappings.
+// Labels represents a collection of label name -> value mappings. This type is
+// commonly used with the With(Labels) and GetMetricWith(Labels) methods of
+// metric vector Collectors, e.g.:
+//     myVec.With(Labels{"dings": "foo", "bums": "bar"}).Add(42)
+//
+// The other use-case is the specification of constant label pairs in Opts or to
+// create a Desc.
 type Labels map[string]string
 
-// Desc is a the descriptor for all Prometheus metrics. It is essentially the
-// immutable meta-data for a metric. The normal Metric implementations included
-// in this library manage their Desc under the hood. Users only have to deal
-// with Desc if they use advanced features like the ExpvarCollector or custom
-// Collectors and Metrics.
+// Desc is a the descriptor used by every Prometheus Metric. It is essentially
+// the immutable meta-data oy a Metric. The normal Metric implementations
+// included in this package manage their Desc under the hood. Users only have to
+// deal with Desc if they use advanced features like the ExpvarCollector or
+// custom Collectors and Metrics.
 //
 // Descriptors registered with the same registry have to fulfill certain
 // consistency and uniqueness criteria if they share the same fully-qualified
-// name. They must also have the same Type, the same Help, and the same label
-// names (aka label dimensions) in each, constLabels and variableLabels, but
-// they must differ in the values of the ConstLabels.
+// name: They must have the same help string and the same label names (aka label
+// dimensions) in each, constLabels and variableLabels, but they must differ in
+// the values of the constLabels.
+//
+// Descriptors that share the same fully-qualified names and the same label
+// values of their constLabels are considered equal.
+//
+// Use NewDesc to create new Desc instances.
 type Desc struct {
 	// fqName has been built from Namespace, Subsystem, and Name.
 	fqName string
@@ -61,8 +72,14 @@ type Desc struct {
 
 // NewDesc allocates and initializes a new Desc. Errors are recorded in the Desc
 // and will be reported on registration time. variableLabels and constLabels can
-// be nil if no such labels should be set. fqName and help must not be empty
-// strings.
+// be nil if no such labels should be set. fqName and help must not be empty.
+//
+// variableLabels only contain the label names. Their label values are variable
+// and therefore not part of the Desc. (They are managed within the Metric.)
+//
+// For constLabels, the label values are constant. Therefore, they are fully
+// specified in the Desc. See the Opts documentation for the implications of
+// constant labels.
 func NewDesc(fqName, help string, variableLabels []string, constLabels Labels) *Desc {
 	d := &Desc{
 		fqName:         fqName,

@@ -12,6 +12,8 @@ continue your journey:
      process metrics exported by a Prometheus client. (The Prometheus server
      is using that library.)
 
+[![GoDoc](https://godoc.org/github.com/prometheus/client_golang?status.png)](https://godoc.org/github.com/prometheus/client_golang)
+     
 # Getting Started
 
   * The source code is periodically indexed: [Go Exposition Client](http://godoc.org/github.com/prometheus/client_golang).

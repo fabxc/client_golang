@@ -49,5 +49,5 @@ func init() {
 
 # Documentation
 
-The [godoc documentation](http://godoc.org/github.com/prometheus/client_golang/prometheus)
-has all the details and many more examples.
+[![GoDoc](https://godoc.org/github.com/prometheus/client_golang?status.png)](https://godoc.org/github.com/prometheus/client_golang)
+

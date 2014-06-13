@@ -26,13 +26,20 @@ import (
 	dto "github.com/prometheus/client_model/go"
 )
 
-// Summary captures individual observations from an event or sample stream and
-// summarizes them in a manner similar to traditional summary statistics:
-// 1. sum of observations, 2. observation count, 3. rank estimations.
+// A Summary captures individual observations from an event or sample stream and
+// summarizes them in a manner similar to traditional summary statistics: 1. sum
+// of observations, 2. observation count, 3. rank estimations.
+//
+// A typical use-case is the observation of request latencies. By default, a
+// Summary provides the median, the 90th and the 99th percentile of the latency
+// as rank estimations.
+//
+// To create Summary instances, use NewSummary.
 type Summary interface {
 	Metric
 	Collector
 
+	// Observe adds a single observation to the summary.
 	Observe(float64)
 }
 
@@ -41,6 +48,7 @@ var (
 	DefObjectives = []float64{0.5, 0.9, 0.99}
 )
 
+// Default values for SummaryOpts.
 const (
 	// DefMaxAge is the default duration for which observations stay
 	// relevant.
@@ -68,19 +76,28 @@ type SummaryOpts struct {
 	Name      string
 
 	// Help provides information about this Summary. Mandatory!
+	//
+	// Metrics with the same fully-qualified name must have the same Help
+	// string.
 	Help string
 
-	// ConstLabels are used to attach fixed labels to this Summary. Note
-	// that in most cases, labels have a value that varies during the
-	// lifetime of a metric object. Those labels are managed with a
-	// SummaryVec collector. ConstLabels serve only special purposes,
-	// e.g. to put the revision of the running binary into a label (which is
-	// naturally constant during the lifetime of a program) or if more than
-	// one Summary object is used for the same metric name (in which case
-	// those Summary objects must differ in the values of their
-	// ConstLabels). If the value of a label never changes (not even between
-	// binaries), that label most likely should not be a label at all (but
-	// part of the metric name).
+	// ConstLabels are used to attach fixed labels to this
+	// Summary. Summaries with the same fully-qualified name must have the
+	// same label names in their ConstLabels.
+	//
+	// Note that in most cases, labels have a value that vary during the
+	// lifetime of a program. Those labels are usually managed with a
+	// SummaryVec. ConstLabels serve only special purposes. One is for the
+	// special case where the value of a label does not change during the
+	// lifetime of a program, e.g. if the revision of the running binary is
+	// put into a label. Another, more advanced purpose is if more than one
+	// Collector needs to collect Summaries of the same fully-qualified
+	// name. In that case, those Summaries must differ in the values of
+	// their ConstLabels. See the Collector examples.
+	//
+	// If the value of a label never changes (not even between binaries),
+	// that label most likely should not be a label at all (but part of the
+	// metric name).
 	ConstLabels Labels
 
 	// Objectives defines the quantile rank estimates. The default value is
@@ -109,7 +126,7 @@ type SummaryOpts struct {
 	Epsilon float64
 }
 
-// NewSummary generates a new Summary from the provided descriptor and options.
+// NewSummary creates a new Summary based on the provided SummaryOpts.
 func NewSummary(opts SummaryOpts) Summary {
 	return newSummary(
 		NewDesc(
@@ -339,10 +356,18 @@ func (s quantSort) Less(i, j int) bool {
 	return s[i].GetQuantile() < s[j].GetQuantile()
 }
 
+// SummaryVec is a Collector that bundles a set of Summaries that all share the
+// same Desc, but have different values for their variable labels. This is used
+// if you want to count the same thing partitioned by various dimensions
+// (e.g. http request latencies, partitioned by status code and method). Create
+// instances with NewSummaryVec.
 type SummaryVec struct {
 	MetricVec
 }
 
+// NewSummaryVec creates a new SummaryVec based on the provided SummaryOpts and
+// partitioned by the given label names. At least one label name must be
+// provided.
 func NewSummaryVec(opts SummaryOpts, labelNames []string) *SummaryVec {
 	desc := NewDesc(
 		BuildFQName(opts.Namespace, opts.Subsystem, opts.Name),
@@ -362,6 +387,9 @@ func NewSummaryVec(opts SummaryOpts, labelNames []string) *SummaryVec {
 	}
 }
 
+// GetMetricWithLabelValues replaces the method of the same name in
+// MetricVec. The difference is that this method returns a Summary and not a
+// Metric so that no type conversion is required.
 func (m *SummaryVec) GetMetricWithLabelValues(lvs ...string) (Summary, error) {
 	metric, err := m.MetricVec.GetMetricWithLabelValues(lvs...)
 	if metric != nil {
@@ -370,6 +398,9 @@ func (m *SummaryVec) GetMetricWithLabelValues(lvs ...string) (Summary, error) {
 	return nil, err
 }
 
+// GetMetricWith replaces the method of the same name in MetricVec. The
+// difference is that this method returns a Summary and not a Metric so that no
+// type conversion is required.
 func (m *SummaryVec) GetMetricWith(labels Labels) (Summary, error) {
 	metric, err := m.MetricVec.GetMetricWith(labels)
 	if metric != nil {
@@ -378,10 +409,17 @@ func (m *SummaryVec) GetMetricWith(labels Labels) (Summary, error) {
 	return nil, err
 }
 
+// WithLabelValues works as GetMetricWithLabelValues, but panics where
+// GetMetricWithLabelValues would have returned an error. That allows shortcuts
+// like
+//     myVec.WithLabelValues("foo", "bar").Add(42)
 func (m *SummaryVec) WithLabelValues(lvs ...string) Summary {
 	return m.MetricVec.WithLabelValues(lvs...).(Summary)
 }
 
+// With works as GetMetricWith, but panics where GetMetricWithLabels would
+// have returned an error. That allows shortcuts like
+//     myVec.With(Labels{"dings": "foo", "bums": "bar"}).Add(42)
 func (m *SummaryVec) With(labels Labels) Summary {
 	return m.MetricVec.With(labels).(Summary)
 }

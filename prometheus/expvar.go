@@ -25,6 +25,8 @@ import (
 // slow. Thus, the ExpvarCollector is probably great for experiments and
 // prototying, but you should seriously consider a more direct implementation of
 // Prometheus metrics for monitoring production systems.
+//
+// Use NewExpvarCollector to create new instances.
 type ExpvarCollector struct {
 	exports map[string]*Desc
 }
@@ -55,6 +57,8 @@ type ExpvarCollector struct {
 // etc. until a depth is reached that corresponds to the number of labels. The
 // leaves of that structure must be numbers or bools as above to serve as the
 // sample values.
+//
+// Anything that does not fit into the scheme above is silently ignored.
 func NewExpvarCollector(exports map[string]*Desc) *ExpvarCollector {
 	return &ExpvarCollector{
 		exports: exports,

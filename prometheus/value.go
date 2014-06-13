@@ -27,8 +27,8 @@ import (
 // ValueType is an enumeration of metric types that represent a simple value.
 type ValueType int
 
+// Possible values for the ValueType enum.
 const (
-	// Possible values for ValueType.
 	_ ValueType = iota
 	CounterValue
 	GaugeValue
@@ -107,7 +107,7 @@ func (v *value) Write(out *dto.Metric) {
 }
 
 // NewConstMetric returns a metric with one fixed value that cannot be
-// changed. A user of the library will not have much use for it in regular
+// changed. Users of this package will not have much use for it in regular
 // operations. However, when implementing custom Collectors, it is useful as a
 // throw-away metric that is generated on the fly to send it to Prometheus in
 // the Collect method. NewConstMetric returns an error if the length of

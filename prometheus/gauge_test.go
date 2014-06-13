@@ -14,53 +14,12 @@
 package prometheus
 
 import (
-	"flag"
 	"math"
 	"math/rand"
 	"sync"
 	"testing"
 	"testing/quick"
 )
-
-func ExampleGauge() {
-	delOps := NewGauge(GaugeOpts{
-		Namespace: "our_company",
-		Subsystem: "blob_storage",
-		Name:      "deletes",
-		Help:      "How many delete operations we have conducted against our blob storage system.",
-	})
-	MustRegister(delOps)
-
-	delOps.Set(900) // That's all, folks!
-}
-
-func ExampleGaugeVec() {
-	binaryVersion := flag.String("binary_version", "debug", "Version of the binary: debug, canary, production.")
-	flag.Parse()
-
-	delOps := NewGaugeVec(
-		GaugeOpts{
-			Namespace:   "our_company",
-			Subsystem:   "blob_storage",
-			Name:        "deletes",
-			Help:        "How many delete operations we have conducted against our blob storage system, partitioned by data corpus and qos.",
-			ConstLabels: Labels{"binary_version": *binaryVersion},
-		},
-		[]string{
-			// What is the body of data being deleted?
-			"corpus",
-			// How urgently do we need to delete the data?
-			"qos",
-		},
-	)
-	MustRegister(delOps)
-
-	// Set a sample value using compact (but order-sensitive!) WithLabelValues().
-	delOps.WithLabelValues("profile-pictures", "immediate").Set(4)
-	// Set a sample value with a map using WithLabels. More verbose, but
-	// order doesn't matter anymore.
-	delOps.With(Labels{"qos": "lazy", "corpus": "cat-memes"}).Set(1)
-}
 
 func listenGaugeStream(vals, result chan float64, done chan struct{}) {
 	var sum float64
@@ -184,7 +143,7 @@ func TestGaugeVecConcurrency(t *testing.T) {
 		}
 		start.Done()
 
-		for i, _ := range sStreams {
+		for i := range sStreams {
 			if expected, got := <-results[i], gge.WithLabelValues(string('A'+i)).(*value).val; math.Abs(expected-got) > 0.000001 {
 				t.Fatalf("expected approx. %f, got %f", expected, got)
 				return false

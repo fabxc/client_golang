@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package prometheus
+package prometheus_test
 
 import (
 	"runtime"
@@ -19,9 +19,11 @@ import (
 	"code.google.com/p/goprotobuf/proto"
 
 	dto "github.com/prometheus/client_model/go"
+
+	"github.com/prometheus/client_golang/prometheus"
 )
 
-func NewCallbackMetric(desc *Desc, callback func() float64) *CallbackMetric {
+func NewCallbackMetric(desc *prometheus.Desc, callback func() float64) *CallbackMetric {
 	result := &CallbackMetric{desc: desc, callback: callback}
 	result.Init(result) // Initialize the SelfCollector.
 	return result
@@ -36,13 +38,13 @@ func NewCallbackMetric(desc *Desc, callback func() float64) *CallbackMetric {
 // to implement a Collector directly and not an individual Metric, see the
 // Collector examples.
 type CallbackMetric struct {
-	SelfCollector
+	prometheus.SelfCollector
 
-	desc     *Desc
+	desc     *prometheus.Desc
 	callback func() float64
 }
 
-func (cm *CallbackMetric) Desc() *Desc {
+func (cm *CallbackMetric) Desc() *prometheus.Desc {
 	return cm.desc
 }
 
@@ -52,7 +54,7 @@ func (cm *CallbackMetric) Write(m *dto.Metric) {
 
 func ExampleSelfCollector() {
 	m := NewCallbackMetric(
-		NewDesc(
+		prometheus.NewDesc(
 			"runtime_goroutine_total",
 			"Total number of goroutines that currently exist.",
 			nil, nil, // No labels, these must be nil.
@@ -61,5 +63,5 @@ func ExampleSelfCollector() {
 			return float64(runtime.NumGoroutine())
 		},
 	)
-	MustRegister(m)
+	prometheus.MustRegister(m)
 }

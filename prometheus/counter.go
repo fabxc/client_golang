@@ -18,12 +18,20 @@ import (
 	"hash/fnv"
 )
 
-// Counter represents a numerical value that only ever goes up.
+// Counter is a Metric that represents a single numerical value that only ever
+// goes up. That implies that it cannot be used to count items whose number can
+// also go down, e.g. the number of currently running goroutines. Those
+// "counters" are represented by Gauges.
+//
+// A Counter is typically used to count requests served, tasks completed, errors
+// occurred, etc.
+//
+// To create Counter instances, use NewCounter.
 type Counter interface {
 	Metric
 	Collector
 
-	// Set is used to set the counter to an arbitrary value. It is only used
+	// Set is used to set the Counter to an arbitrary value. It is only used
 	// if you have to transfer a value from an external counter into this
 	// Prometheus metrics. Do not use it for regular handling of a
 	// Prometheus counter (as it can be used to break the contract of
@@ -39,8 +47,7 @@ type Counter interface {
 // CounterOpts is an alias for Opts. See there for doc comments.
 type CounterOpts Opts
 
-// NewCounter creates a new counter (without labels) based on the provided
-// descriptor.
+// NewCounter creates a new Counter based on the provided CounterOpts.
 func NewCounter(opts CounterOpts) Counter {
 	desc := NewDesc(
 		BuildFQName(opts.Namespace, opts.Subsystem, opts.Name),
@@ -64,17 +71,21 @@ func (c *counter) Add(v float64) {
 	c.value.Add(v)
 }
 
-// CounterVec is a Collector that bundles a set of Counters that all
-// share the same Desc, but have different values for their variable
-// lables. This is used if you want to count the same thing partitioned by
-// various dimensions (e.g. number of http request, partitioned by response code
-// and method).
+// CounterVec is a Collector that bundles a set of Counters that all share the
+// same Desc, but have different values for their variable labels. This is used
+// if you want to count the same thing partitioned by various dimensions
+// (e.g. number of http requests, partitioned by response code and
+// method). Create instances with NewCounterVec.
+//
+// CounterVec embeds MetricVec. See there for a full list of methods with
+// detailed documentation.
 type CounterVec struct {
 	MetricVec
 }
 
-// NewCounterVec returns a newly allocated CounterVec with the given Desc. It
-// will return an error if Desc does not contain at least one VariableLabel.
+// NewCounterVec creates a new CounterVec based on the provided CounterOpts and
+// partitioned by the given label names. At least one label name must be
+// provided.
 func NewCounterVec(opts CounterOpts, labelNames []string) *CounterVec {
 	desc := NewDesc(
 		BuildFQName(opts.Namespace, opts.Subsystem, opts.Name),
@@ -100,15 +111,9 @@ func NewCounterVec(opts CounterOpts, labelNames []string) *CounterVec {
 	}
 }
 
-// GetMetricWithLabelValues returns the Counter for the given slice of label
-// values (same order as the VariableLabels in Desc). If that combination of
-// label values is accessed for the first time, a new Counter is created.
-// Keeping the Counter pointer for later use is possible (and should be
-// considered if performance is critical), but keep in mind that
-// MetricVec.DeleteLabelValues and MetricVec.DeleteLabels can be used to delete
-// the Counter the pointer is pointing to. In that case, updates of the Counter
-// will never be exported, even if a Counter with the same label values is
-// created later.
+// GetMetricWithLabelValues replaces the method of the same name in
+// MetricVec. The difference is that this method returns a Counter and not a
+// Metric so that no type conversion is required.
 func (m *CounterVec) GetMetricWithLabelValues(lvs ...string) (Counter, error) {
 	metric, err := m.MetricVec.GetMetricWithLabelValues(lvs...)
 	if metric != nil {
@@ -117,10 +122,9 @@ func (m *CounterVec) GetMetricWithLabelValues(lvs ...string) (Counter, error) {
 	return nil, err
 }
 
-// GetMetricWith returns the Counter for the given label map (the label names
-// must match those of the VariableLabels in Desc). If that label map is
-// accessed for the first time, a new Counter is created. Implications of
-// keeping the Counter pointer are the same as for GetMetricWithLabelValues.
+// GetMetricWith replaces the method of the same name in MetricVec. The
+// difference is that this method returns a Counter and not a Metric so that no
+// type conversion is required.
 func (m *CounterVec) GetMetricWith(labels Labels) (Counter, error) {
 	metric, err := m.MetricVec.GetMetricWith(labels)
 	if metric != nil {
@@ -137,8 +141,8 @@ func (m *CounterVec) WithLabelValues(lvs ...string) Counter {
 	return m.MetricVec.WithLabelValues(lvs...).(Counter)
 }
 
-// With works as GetMetricWithLabels, but panics where GetMetricWithLabels would
-// have returned an error. That allows shortcuts like
+// With works as GetMetricWith, but panics where GetMetricWithLabels would have
+// returned an error. That allows shortcuts like
 //     myVec.With(Labels{"dings": "foo", "bums": "bar"}).Add(42)
 func (m *CounterVec) With(labels Labels) Counter {
 	return m.MetricVec.With(labels).(Counter)

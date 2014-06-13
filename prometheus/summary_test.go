@@ -14,7 +14,6 @@
 package prometheus
 
 import (
-	"fmt"
 	"math"
 	"math/rand"
 	"sort"
@@ -22,8 +21,6 @@ import (
 	"testing"
 	"testing/quick"
 	"time"
-
-	"code.google.com/p/goprotobuf/proto"
 
 	dto "github.com/prometheus/client_model/go"
 )
@@ -123,6 +120,8 @@ func BenchmarkSummaryWrite8(b *testing.B) {
 }
 
 func TestSummaryConcurrency(t *testing.T) {
+	rand.Seed(42)
+
 	it := func(n uint32) bool {
 		mutations := int(n%10000 + 1)
 		concLevel := int(n%15 + 1)
@@ -191,6 +190,8 @@ func TestSummaryConcurrency(t *testing.T) {
 }
 
 func TestSummaryVecConcurrency(t *testing.T) {
+	rand.Seed(42)
+
 	it := func(n uint32) bool {
 		mutations := int(n%10000 + 1)
 		concLevel := int(n%15 + 1)
@@ -310,119 +311,4 @@ func getBounds(vars []float64, q, ε float64) (min, max float64) {
 		max = vars[upper]
 	}
 	return
-}
-
-func ExampleSummary() {
-	temps := NewSummary(SummaryOpts{
-		Name: "pond_temperature_celsius",
-		Help: "The temperature of the frog pond.", // Sorry, we can't measure how badly it smells.
-	})
-
-	// Simulate some observations.
-	for i := 0; i < 1000; i++ {
-		temps.Observe(30 + math.Floor(120*math.Sin(float64(i)*0.1))/10)
-	}
-
-	// Just for demonstration, let's check the state of the summary by
-	// (ab)using its Write method (which is usually only used by Prometheus
-	// internally).
-	metric := &dto.Metric{}
-	temps.Write(metric)
-	fmt.Println(proto.MarshalTextString(metric))
-
-	// Output:
-	// summary: <
-	//   sample_count: 1000
-	//   sample_sum: 29969.50000000001
-	//   quantile: <
-	//     quantile: 0.5
-	//     value: 30.2
-	//   >
-	//   quantile: <
-	//     quantile: 0.9
-	//     value: 41.4
-	//   >
-	//   quantile: <
-	//     quantile: 0.99
-	//     value: 41.9
-	//   >
-	// >
-}
-
-func ExampleSummaryVec() {
-	temps := NewSummaryVec(
-		SummaryOpts{
-			Name: "pond_temperature_celsius",
-			Help: "The temperature of the frog pond.", // Sorry, we can't measure how badly it smells.
-		},
-		[]string{"species"},
-	)
-
-	// Simulate some observations.
-	for i := 0; i < 1000; i++ {
-		temps.WithLabelValues("litoria-caerulea").Observe(30 + math.Floor(120*math.Sin(float64(i)*0.1))/10)
-		temps.WithLabelValues("lithobates-catesbeianus").Observe(32 + math.Floor(100*math.Cos(float64(i)*0.11))/10)
-	}
-
-	// Just for demonstration, let's check the state of the summary vector
-	// by (ab)using its Collect method and the Write method of its elements
-	// (which is usually only used by Prometheus internally - code like the
-	// following will never appear in your own code).
-	metricChan := make(chan Metric)
-	go func() {
-		defer close(metricChan)
-		temps.Collect(metricChan)
-	}()
-
-	metricStrings := []string{}
-	for metric := range metricChan {
-		dtoMetric := &dto.Metric{}
-		metric.Write(dtoMetric)
-		metricStrings = append(metricStrings, proto.MarshalTextString(dtoMetric))
-	}
-	sort.Strings(metricStrings) // For reproducible print order.
-	fmt.Println(metricStrings)
-
-	// Output:
-	// [label: <
-	//   name: "species"
-	//   value: "lithobates-catesbeianus"
-	// >
-	// summary: <
-	//   sample_count: 1000
-	//   sample_sum: 31956.100000000017
-	//   quantile: <
-	//     quantile: 0.5
-	//     value: 32
-	//   >
-	//   quantile: <
-	//     quantile: 0.9
-	//     value: 41.5
-	//   >
-	//   quantile: <
-	//     quantile: 0.99
-	//     value: 41.9
-	//   >
-	// >
-	//  label: <
-	//   name: "species"
-	//   value: "litoria-caerulea"
-	// >
-	// summary: <
-	//   sample_count: 1000
-	//   sample_sum: 29969.50000000001
-	//   quantile: <
-	//     quantile: 0.5
-	//     value: 30.2
-	//   >
-	//   quantile: <
-	//     quantile: 0.9
-	//     value: 41.4
-	//   >
-	//   quantile: <
-	//     quantile: 0.99
-	//     value: 41.9
-	//   >
-	// >
-	// ]
 }

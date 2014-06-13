@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package prometheus
+package prometheus_test
 
 import (
 	"expvar"
@@ -20,33 +20,34 @@ import (
 	"strings"
 
 	dto "github.com/prometheus/client_model/go"
+
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 func ExampleExpvarCollector() {
-	expvarCollector := NewExpvarCollector(map[string]*Desc{
-		"memstats": NewDesc(
+	expvarCollector := prometheus.NewExpvarCollector(map[string]*prometheus.Desc{
+		"memstats": prometheus.NewDesc(
 			"expvar_memstats",
 			"All numeric memstats as one metric family. Not a good role-model, actually... ;-)",
 			[]string{"type"}, nil,
 		),
-		"lone-int": NewDesc(
+		"lone-int": prometheus.NewDesc(
 			"expvar_lone_int",
 			"Just an expvar int as an example.",
 			nil, nil,
 		),
-		"http-request-map": NewDesc(
+		"http-request-map": prometheus.NewDesc(
 			"expvar_http_request_total",
 			"How many http requests processed, partitioned by status code and http method.",
 			[]string{"code", "method"}, nil,
 		),
 	})
-	MustRegister(expvarCollector)
+	prometheus.MustRegister(expvarCollector)
 
 	// The Prometheus part is done here. But to show that this example is
 	// doing anything, we have to manually export something via expvar.  In
-	// real-life use-cases, some library would already have exported
-	// something via expvar, which you now want to re-export as Prometheus
-	// metrics.
+	// real-life use-cases, some library would already have exported via
+	// expvar what we want to re-export as Prometheus metrics.
 	expvar.NewInt("lone-int").Set(42)
 	expvarMap := expvar.NewMap("http-request-map")
 	var (
@@ -71,13 +72,13 @@ func ExampleExpvarCollector() {
 	// Let's see what the scrape would yield, but exclude the memstats metrics.
 	metricStrings := []string{}
 	metric := dto.Metric{}
-	metricChan := make(chan Metric)
+	metricChan := make(chan prometheus.Metric)
 	go func() {
 		expvarCollector.Collect(metricChan)
 		close(metricChan)
 	}()
 	for m := range metricChan {
-		if m.Desc().fqName != "expvar_memstats" {
+		if strings.Index(m.Desc().String(), "expvar_memstats") == -1 {
 			metric.Reset()
 			m.Write(&metric)
 			metricStrings = append(metricStrings, metric.String())

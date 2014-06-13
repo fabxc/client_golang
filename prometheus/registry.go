@@ -43,18 +43,8 @@ var (
 	errAlreadyReg = errors.New("duplicate metrics collector registration attempted")
 )
 
+// Constants relevant to the HTTP interface.
 const (
-	// Constants for object pools.
-	numBufs           = 4
-	numMetricFamilies = 1000
-	numMetrics        = 10000
-
-	// Capacity for the channel to collect metrics and descriptors.
-	capMetricChan = 1000
-	capDescChan   = 10
-
-	contentTypeHeader = "Content-Type"
-
 	// APIVersion is the version of the format of the exported data.  This
 	// will match this library's version, which subscribes to the Semantic
 	// Versioning scheme.
@@ -73,6 +63,17 @@ const (
 	// telemetry data responses in protobuf compact text format.  (Only used
 	// for debugging.)
 	ProtoCompactTextTelemetryContentType = `application/vnd.google.protobuf; proto="io.prometheus.client.MetricFamily"; encoding="compact-text"`
+
+	// Constants for object pools.
+	numBufs           = 4
+	numMetricFamilies = 1000
+	numMetrics        = 10000
+
+	// Capacity for the channel to collect metrics and descriptors.
+	capMetricChan = 1000
+	capDescChan   = 10
+
+	contentTypeHeader = "Content-Type"
 )
 
 // Handler returns the handler for the global Prometheus registry. It is already
@@ -91,11 +92,16 @@ func UninstrumentedHandler() http.Handler {
 	return defRegistry
 }
 
-// Register enrolls a new metrics collector.  It returns an error if the
-// provided descriptors are problematic or at least one of them shares the same
-// name and const labels with one that is already registered.  It returns the
-// enrolled metrics collector. Do not register the same Collector
-// multiple times concurrently.
+// Register registers a new Collector to be included in metrics collection. It
+// returns an error if the descriptors provided by the Collector are invalid or
+// if they - in combination with descriptors of already registered Collectors -
+// do not fulfill the consistency and uniqueness criteria described in the Desc
+// documentation. If the registration is successful, the registered Collector
+// is returned.
+//
+// Do not register the same Collector multiple times concurrently. (Registering
+// the same Collector twice would result in an error anyway, but on top of that,
+// it is not safe to do so concurrently.)
 func Register(m Collector) (Collector, error) {
 	return defRegistry.Register(m)
 }
@@ -110,10 +116,14 @@ func MustRegister(m Collector) Collector {
 	return m
 }
 
-// RegisterOrGet enrolls a new metrics collector once and only once. It returns
-// an error if the provided descriptors are problematic or at least one of them
-// shares the same name and preset labels with one that is already registered.
-// It returns the enrolled metric or the existing one. Do not register the same
+// RegisterOrGet works like Register but does not return an error if a Collector
+// is registered that equals a previously registered Collector. (Two Collectors
+// are considered equal if their Describe method yields the same set of
+// descriptors.) Instead, the previously registered Collector is returned (which
+// is helpful if the new and previously registered Collectors are equal but not
+// identical, i.e. not pointers to the same object).
+//
+// As for Register, it is still not safe to call RegisterOrGet with the same
 // Collector multiple times concurrently.
 func RegisterOrGet(m Collector) (Collector, error) {
 	return defRegistry.RegisterOrGet(m)
@@ -129,9 +139,12 @@ func MustRegisterOrGet(m Collector) Collector {
 	return existing
 }
 
-// Unregister unenrolls a metric returning whether the metric was unenrolled.
-func Unregister(m Collector) bool {
-	return defRegistry.Unregister(m)
+// Unregister unregisters the Collector that equals the Collector passed in as
+// an argument. (Two Collectors are considered equal if their Describe method
+// yields the same set of descriptors.) The function returns whether a Collector
+// was unregistered.
+func Unregister(c Collector) bool {
+	return defRegistry.Unregister(c)
 }
 
 // SetMetricFamilyInjectionHook sets a function that is called whenever metrics
@@ -160,9 +173,8 @@ func PanicOnCollectError(b bool) {
 // metrics collection. By default, those checks are not enabled because they
 // inflict a performance penalty, and the errors they check for can only happen
 // if the used Metric and Collector types have internal programming
-// errors. While working with user defined Collectors or Metrics whose
-// correctness is not well established yet, it can be helpful to enable the
-// checks.
+// errors. While working with custom Collectors or Metrics whose correctness is
+// not well established yet, it can be helpful to enable the checks.
 func EnableCollectChecks(b bool) {
 	defRegistry.collectChecksEnabled = b
 }
@@ -281,18 +293,20 @@ func (r *registry) Unregister(c Collector) bool {
 		close(descChan)
 	}()
 
-	descs := []*Desc{}
+	descIDs := map[uint64]struct{}{}
 	collectorIDHash := fnv.New64a()
 	buf := make([]byte, 8)
 	for desc := range descChan {
-		binary.BigEndian.PutUint64(buf, desc.id)
-		collectorIDHash.Write(buf)
-		descs = append(descs, desc)
+		if _, exists := descIDs[desc.id]; !exists {
+			binary.BigEndian.PutUint64(buf, desc.id)
+			collectorIDHash.Write(buf)
+			descIDs[desc.id] = struct{}{}
+		}
 	}
 	collectorID := collectorIDHash.Sum64()
 
 	r.mtx.RLock()
-	if _, ok := r.collectorsByID[collectorID]; !ok {
+	if _, exists := r.collectorsByID[collectorID]; !exists {
 		r.mtx.RUnlock()
 		return false
 	}
@@ -302,8 +316,8 @@ func (r *registry) Unregister(c Collector) bool {
 	defer r.mtx.Unlock()
 
 	delete(r.collectorsByID, collectorID)
-	for _, desc := range descs {
-		delete(r.descIDs, desc.id)
+	for id := range descIDs {
+		delete(r.descIDs, id)
 	}
 	// dimHashesByName is left untouched as those must be consistent
 	// throughout the lifetime of a program.

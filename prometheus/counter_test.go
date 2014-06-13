@@ -13,66 +13,7 @@
 
 package prometheus
 
-import (
-	"fmt"
-	"testing"
-)
-
-func ExampleCounter() {
-	pushCounter := NewCounter(CounterOpts{
-		Name: "repository_pushes", // Note: No help string...
-	})
-	_, err := Register(pushCounter) // ... so this will return an error.
-	if err != nil {
-		fmt.Println("Push counter couldn't be registered, no counting will happen:", err)
-		return
-	}
-
-	// Try it once more, this time with a help string.
-	pushCounter = NewCounter(CounterOpts{
-		Name: "repository_pushes",
-		Help: "Number of pushes to external repository.",
-	})
-	_, err = Register(pushCounter)
-	if err != nil {
-		fmt.Println("Push counter couldn't be registered, no counting will happen:", err)
-		return
-	}
-
-	pushComplete := make(chan struct{})
-	// TODO: Send something to channel.
-	for _ = range pushComplete {
-		pushCounter.Inc()
-	}
-	// Output:
-	// Push counter couldn't be registered, no counting will happen: descriptor Desc{fqName: "repository_pushes", help: "", constLabels: {}, variableLables: []} is invalid: empty help string
-}
-
-func ExampleCounterVec() {
-	httpReqs := NewCounterVec(
-		CounterOpts{
-			Name:        "http_requests",
-			Help:        "How many http requests processed, partitioned by status code and http method.",
-			ConstLabels: Labels{"env": "production"}, // Normally filled from a flag or so.
-		},
-		[]string{"code", "method"},
-	)
-	MustRegister(httpReqs)
-
-	httpReqs.WithLabelValues("404", "POST").Add(42)
-
-	// If you have to access the same set of labels very frequently, it
-	// might be good to retrieve the metric only once and keep a handle to
-	// it. But beware deletion of that metric, see below!
-	m := httpReqs.WithLabelValues("200", "GET")
-	for i := 0; i < 1000000; i++ {
-		m.Inc()
-	}
-	// Delete a metric from the vector. If you have kept a handle to that
-	// metric before (as above), updates via that handle will go unseen
-	// (even if you re-create a metric with the same label set later).
-	httpReqs.DeleteLabelValues("200", "GET")
-}
+import "testing"
 
 func TestCounterAdd(t *testing.T) {
 	counter := NewCounter(CounterOpts{

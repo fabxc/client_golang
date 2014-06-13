@@ -13,15 +13,7 @@
 
 package prometheus
 
-import (
-	"fmt"
-	"sort"
-	"testing"
-
-	"code.google.com/p/goprotobuf/proto"
-
-	dto "github.com/prometheus/client_model/go"
-)
+import "testing"
 
 func TestBuildFQName(t *testing.T) {
 	scenarios := []struct{ namespace, subsystem, name, result string }{
@@ -40,17 +32,4 @@ func TestBuildFQName(t *testing.T) {
 			t.Errorf("%d. want %s, got %s", i, want, got)
 		}
 	}
-}
-
-func ExampleLabelPairSorter() {
-	labelPairs := []*dto.LabelPair{
-		&dto.LabelPair{Name: proto.String("status"), Value: proto.String("404")},
-		&dto.LabelPair{Name: proto.String("method"), Value: proto.String("get")},
-	}
-
-	sort.Sort(LabelPairSorter(labelPairs))
-
-	fmt.Println(labelPairs)
-	// Output:
-	// [name:"method" value:"get"  name:"status" value:"404" ]
 }

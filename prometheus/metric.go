@@ -20,8 +20,10 @@ import (
 )
 
 // A Metric models a single sample value with its meta data being exported to
-// Prometheus. Users can implement their own Metric types (but that should be
-// rarely needed). See the example for SelfCollector.
+// Prometheus. Implementers of Metric in this package inclued Gauge, Counter,
+// Untyped, and Summary. Users can implement their own Metric types but that
+// should be rarely needed. See the example for SelfCollector, which is also an
+// example for a user-implemented Metric.
 type Metric interface {
 	// Desc returns the descriptor for the Metric. This method idempotently
 	// returns the same descriptor throughout the lifetime of the
@@ -33,7 +35,7 @@ type Metric interface {
 	// Implementers of custom Metric types must observe concurrency safety
 	// as reads of this metric may occur at any time, and any blocking
 	// occurs at the expense of total performance of rendering all
-	// registered metrics.  Ideally Metric implementations should support
+	// registered metrics. Ideally Metric implementations should support
 	// concurrent readers.
 	//
 	// The Prometheus client library attempts to minimize memory allocations
@@ -55,7 +57,7 @@ type Metric interface {
 // are optional and can safely be left at their zero value.
 type Opts struct {
 	// Namespace, Subsystem, and Name are components of the fully-qualified
-	// name of the metric (created by joining these components with
+	// name of the Metric (created by joining these components with
 	// "_"). Only Name is mandatory, the others merely help structuring the
 	// name. Note that the fully-qualified name of the metric must be a
 	// valid Prometheus metric name.
@@ -64,19 +66,29 @@ type Opts struct {
 	Name      string
 
 	// Help provides information about this metric. Mandatory!
+	//
+	// Metrics with the same fully-qualified name must have the same Help
+	// string.
 	Help string
 
-	// ConstLabels are used to attach fixed labels to this metric. Note that
-	// in most cases, labels have a value that varies during the lifetime of
-	// a metric object. Those labels are managed with a metric vector
-	// collector (like CounterVec, GaugeVec, UntypedVec). ConstLabels serve
-	// only special purposes, e.g. to put the revision of the running binary
-	// into a label (which is naturally constant during the lifetime of a
-	// program) or if more than one metric object is used for the same
-	// metric name (in which case those metric objects must differ in the
-	// values of their ConstLabels). If the value of a label never changes
-	// (not even between binaries), that label most likely should not be a
-	// label at all (but part of the metric name).
+	// ConstLabels are used to attach fixed labels to this metric. Metrics
+	// with the same fully-qualified name must have the same label names in
+	// their ConstLabels.
+	//
+	// Note that in most cases, labels have a value that vary during the
+	// lifetime of a program. Those labels are usually managed with a metric
+	// vector collector (like CounterVec, GaugeVec, UntypedVec). ConstLabels
+	// serve only special purposes. One is for the special case where the
+	// value of a label does not change during the lifetime of a program,
+	// e.g. if the revision of the running binary is put into a
+	// label. Another, more advanced purpose is if more than one Collector
+	// needs to collect Metrics of the same fully-qualified name. In that
+	// case, those Metrics must differ in the values of their
+	// ConstLabels. See the Collector examples.
+	//
+	// If the value of a label never changes (not even between binaries),
+	// that label most likely should not be a label at all (but part of the
+	// metric name).
 	ConstLabels Labels
 }
 
@@ -85,8 +97,8 @@ type Opts struct {
 // string is returned, no matter what. Metric implementations included in this
 // library use this function internally to generate the fully-qualified metric
 // name from the name component in their Opts. Users of the library will only
-// have a use for this function if they implement their own Metric or
-// instantiate a Desc (with NewDesc) directly.
+// need this function if they implement their own Metric or instantiate a Desc
+// (with NewDesc) directly.
 func BuildFQName(namespace, subsystem, name string) string {
 	if name == "" {
 		return ""

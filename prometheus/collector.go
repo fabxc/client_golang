@@ -14,19 +14,26 @@
 package prometheus
 
 // Collector is the interface implemented by anything that can be used by
-// Prometheus to collect metrics. The stock metrics provided by this package
-// (like Gauge, Counter, Summary) are also MetricCollectors (which only ever
-// collect one metric, namely itself). An implementer of Collector may,
-// however, collect multiple metrics in a coordinated fashion and/or create
-// metrics on the fly. Examples for collectors already implemented in this
-// library are the multi-dimensional metrics (i.e. metrics with variable lables)
-// like GaugeVec or SummaryVec and the ExpvarCollector.
+// Prometheus to collect metrics. A Collector has to be registered for
+// collection. See Register, MustRegister, RegisterOrGet, and MustRegisterOrGet.
+//
+// The stock metrics provided by this package (like Gauge, Counter, Summary) are
+// also Collectors (which only ever collect one metric, namely itself). An
+// implementer of Collector may, however, collect multiple metrics in a
+// coordinated fashion and/or create metrics on the fly. Examples for collectors
+// already implemented in this library are the metric vectors (i.e. collection
+// of multiple instances of the same Metric but with different label values)
+// like GaugeVec or SummaryVec, and the ExpvarCollector.
 type Collector interface {
 	// Describe sends the super-set of all possible descriptors of metrics
-	// collected by this Collector to the provided channel. The sent
-	// descriptors fulfill the consistency and uniqueness requirements
-	// described in the Desc documentation. This method idempotently returns
-	// the same descriptors throughout the lifetime of the Metric.
+	// collected by this Collector to the provided channel and returns once
+	// the last descriptor has been sent. The sent descriptors fulfill the
+	// consistency and uniqueness requirements described in the Desc
+	// documentation. (It is valid if one and the same Collector sends
+	// duplicate descriptors. Those duplicates are simply ignored. However,
+	// two different Collectors must not send duplicate descriptors.) This
+	// method idempotently sends the same descriptors throughout the
+	// lifetime of the Collector.
 	Describe(chan<- *Desc)
 	// Collect is called by Prometheus when collecting metrics. The
 	// implementation sends each collected metric via the provided channel
@@ -36,14 +43,14 @@ type Collector interface {
 	// label values. This method may be called concurrently and must
 	// therefore be implemented in a concurrency safe way. Blocking occurs
 	// at the expense of total performance of rendering all registered
-	// metrics. Ideally Collector implementations should support concurrent
+	// metrics. Ideally, Collector implementations support concurrent
 	// readers.
 	Collect(chan<- Metric)
 }
 
-// SelfCollector implements Collector for a single metric so that that
-// metric collects itself. Add it as an anonymous field to a struct that
-// implements Metric, and call Init with the metric itself as an argument.
+// SelfCollector implements Collector for a single Metric so that that the
+// Metric collects itself. Add it as an anonymous field to a struct that
+// implements Metric, and call Init with the Metric itself as an argument.
 type SelfCollector struct {
 	self Metric
 }

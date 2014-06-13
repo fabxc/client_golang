@@ -24,7 +24,7 @@ import (
 // differ in their label values. MetricVec is usually not used directly but as a
 // building block for implementations of vectors of a given metric
 // type. GaugeVec, CounterVec, SummaryVec, and UntypedVec are examples already
-// provided with this library.
+// provided in this package.
 type MetricVec struct {
 	mtx      sync.RWMutex // Protects not only children, but also hash and buf.
 	children map[uint64]Metric
@@ -55,9 +55,25 @@ func (m *MetricVec) Collect(ch chan<- Metric) {
 	}
 }
 
-// GetMetricWithLabelValues returns the metric where the variable lables have
-// the values passed in as lvs. The order must be the same as in the
-// descriptor. If too many or too few arguments are usen, an error is returned.
+// GetMetricWithLabelValues returns the Metric for the given slice of label
+// values (same order as the VariableLabels in Desc). If that combination of
+// label values is accessed for the first time, a new Metric is created.
+// Keeping the Metric for later use is possible (and should be considered if
+// performance is critical), but keep in mind that Reset, DeleteLabelValues and
+// Delete can be used to delete the Metric from the MetricVec. In that case, the
+// Metric will still exist, but it will not be exported anymore, even if a
+// Metric with the same label values is created later. See also the CounterVec
+// example.
+//
+// An error is returned if the number of label values is not the same as the
+// number of VariableLabels in Desc.
+//
+// Note that for more than one label value, this method is prone to mistakes
+// caused by an incorrect order of arguments. Consider GetMetricWith(Labels) as
+// an alternative to avoid that type of mistake. For higher label numbers, the
+// latter has a much more readable (albeit more verbose) syntax, but it comes
+// with a performance overhead (for creating and processing the Labels map).
+// See also the GaugeVec example.
 func (m *MetricVec) GetMetricWithLabelValues(lvs ...string) (Metric, error) {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
@@ -69,10 +85,17 @@ func (m *MetricVec) GetMetricWithLabelValues(lvs ...string) (Metric, error) {
 	return m.getOrCreateMetric(h, lvs...), nil
 }
 
-// GetMetricWith returns the metric where the variable labels are the same as
-// those passed in as labels. If the labels map has too many or too few entries,
-// or if a name of a variable label cannot be found in the labels map, an error
-// is returned.
+// GetMetricWith returns the Metric for the given Labels map (the label names
+// must match those of the VariableLabels in Desc). If that label map is
+// accessed for the first time, a new Metric is created. Implications of keeping
+// the Metric are the same as for GetMetricWithLabelValues.
+//
+// An error is returned if the number and names of the Labels are inconsistent
+// with those of the VariableLabels in Desc.
+//
+// This method is used for the same purpose as
+// GetMetricWithLabelValues(...string). See there for pros and cons of the two
+// methods.
 func (m *MetricVec) GetMetricWith(labels Labels) (Metric, error) {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
@@ -111,7 +134,20 @@ func (m *MetricVec) With(labels Labels) Metric {
 }
 
 // DeleteLabelValues removes the metric where the variable labels are the same
-// as those passed in as labels. It returns true if a metric was deleted.
+// as those passed in as labels (same erdor as the VariableLabels in Desc). It
+// returns true if a metric was deleted.
+//
+// It is not an error if the number of label values is not the same as the
+// number of VariableLabels in Desc.  However, such inconsistent label count can
+// never match an actual Metric, so the method will always return false in that
+// case.
+//
+// Note that for more than one label value, this method is prone to mistakes
+// caused by an incorrect order of arguments. Consider Delete(Labels) as an
+// alternative to avoid that type of mistake. For higher label numbers, the
+// latter has a much more readable (albeit more verbose) syntax, but it comes
+// with a performance overhead (for creating and processing the Labels map).
+// See also the CounterVec example.
 func (m *MetricVec) DeleteLabelValues(lvs ...string) bool {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
@@ -129,6 +165,14 @@ func (m *MetricVec) DeleteLabelValues(lvs ...string) bool {
 
 // Delete deletes the metric where the variable labels are the same as those
 // passed in as labels. It returns true if a metric was deleted.
+//
+// It is not an error if the number and names of the Labels are inconsistent
+// with those of the VariableLabels in the Desc of the MetricVec. However, such
+// inconsistent Labels can never match an actual Metric, so the method will
+// always return false in that case.
+//
+// This method is used for the same purpose as DeleteLabelValues(...string). See
+// there for pros and cons of the two methods.
 func (m *MetricVec) Delete(labels Labels) bool {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
