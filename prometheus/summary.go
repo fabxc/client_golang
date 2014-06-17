@@ -85,13 +85,13 @@ type SummaryOpts struct {
 	// Summary. Summaries with the same fully-qualified name must have the
 	// same label names in their ConstLabels.
 	//
-	// Note that in most cases, labels have a value that vary during the
-	// lifetime of a program. Those labels are usually managed with a
+	// Note that in most cases, labels have a value that varies during the
+	// lifetime of a process. Those labels are usually managed with a
 	// SummaryVec. ConstLabels serve only special purposes. One is for the
 	// special case where the value of a label does not change during the
-	// lifetime of a program, e.g. if the revision of the running binary is
+	// lifetime of a process, e.g. if the revision of the running binary is
 	// put into a label. Another, more advanced purpose is if more than one
-	// Collector needs to collect Summaries of the same fully-qualified
+	// Collector needs to collect Summaries with the same fully-qualified
 	// name. In that case, those Summaries must differ in the values of
 	// their ConstLabels. See the Collector examples.
 	//
@@ -110,7 +110,7 @@ type SummaryOpts struct {
 
 	// AgeBuckets is the number of buckets used to exclude observations that
 	// are older than MaxAge from the summary. A higher number has a
-	// resource penalty so only increase it if the higher resolution is
+	// resource penalty, so only increase it if the higher resolution is
 	// really required. The default value is DefAgeBuckets.
 	AgeBuckets uint32
 
@@ -410,16 +410,16 @@ func (m *SummaryVec) GetMetricWith(labels Labels) (Summary, error) {
 }
 
 // WithLabelValues works as GetMetricWithLabelValues, but panics where
-// GetMetricWithLabelValues would have returned an error. That allows shortcuts
-// like
-//     myVec.WithLabelValues("foo", "bar").Add(42)
+// GetMetricWithLabelValues would have returned an error. By not returning an
+// error, WithLabelValues allows shortcuts like
+//     myVec.WithLabelValues("404", "GET").Add(42)
 func (m *SummaryVec) WithLabelValues(lvs ...string) Summary {
 	return m.MetricVec.WithLabelValues(lvs...).(Summary)
 }
 
-// With works as GetMetricWith, but panics where GetMetricWithLabels would
-// have returned an error. That allows shortcuts like
-//     myVec.With(Labels{"dings": "foo", "bums": "bar"}).Add(42)
+// With works as GetMetricWith, but panics where GetMetricWithLabels would have
+// returned an error. By not returning an error, With allows shortcuts like
+//     myVec.With(Labels{"code": "404", "method": "GET"}).Add(42)
 func (m *SummaryVec) With(labels Labels) Summary {
 	return m.MetricVec.With(labels).(Summary)
 }

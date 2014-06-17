@@ -47,7 +47,7 @@ var (
 type MemStatsCollector struct{}
 
 // Describe just sends the three Desc objects for the Metrics we intend to
-// collect
+// collect.
 func (_ MemStatsCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- allocDesc
 	ch <- totalAllocDesc

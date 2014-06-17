@@ -21,7 +21,7 @@ import (
 
 // A Metric models a single sample value with its meta data being exported to
 // Prometheus. Implementers of Metric in this package inclued Gauge, Counter,
-// Untyped, and Summary. Users can implement their own Metric types but that
+// Untyped, and Summary. Users can implement their own Metric types, but that
 // should be rarely needed. See the example for SelfCollector, which is also an
 // example for a user-implemented Metric.
 type Metric interface {
@@ -75,14 +75,14 @@ type Opts struct {
 	// with the same fully-qualified name must have the same label names in
 	// their ConstLabels.
 	//
-	// Note that in most cases, labels have a value that vary during the
-	// lifetime of a program. Those labels are usually managed with a metric
+	// Note that in most cases, labels have a value that varies during the
+	// lifetime of a process. Those labels are usually managed with a metric
 	// vector collector (like CounterVec, GaugeVec, UntypedVec). ConstLabels
 	// serve only special purposes. One is for the special case where the
-	// value of a label does not change during the lifetime of a program,
+	// value of a label does not change during the lifetime of a process,
 	// e.g. if the revision of the running binary is put into a
 	// label. Another, more advanced purpose is if more than one Collector
-	// needs to collect Metrics of the same fully-qualified name. In that
+	// needs to collect Metrics with the same fully-qualified name. In that
 	// case, those Metrics must differ in the values of their
 	// ConstLabels. See the Collector examples.
 	//

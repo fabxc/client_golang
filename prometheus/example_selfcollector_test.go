@@ -29,7 +29,7 @@ func NewCallbackMetric(desc *prometheus.Desc, callback func() float64) *Callback
 	return result
 }
 
-// CallbackMetric is an example for a user defined Metric that exports the
+// CallbackMetric is an example for a user-defined Metric that exports the
 // result of a function call as a metric of type "untyped" without any
 // labels. It uses SelfCollector to turn the Metric into a Collector so that it
 // can be registered with Prometheus.
@@ -55,7 +55,7 @@ func (cm *CallbackMetric) Write(m *dto.Metric) {
 func ExampleSelfCollector() {
 	m := NewCallbackMetric(
 		prometheus.NewDesc(
-			"runtime_goroutine_total",
+			"runtime_goroutines_count",
 			"Total number of goroutines that currently exist.",
 			nil, nil, // No labels, these must be nil.
 		),

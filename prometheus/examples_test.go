@@ -100,7 +100,7 @@ func ExampleCounter() {
 		pushCounter.Inc()
 	}
 	// Output:
-	// Push counter couldn't be registered, no counting will happen: descriptor Desc{fqName: "repository_pushes", help: "", constLabels: {}, variableLables: []} is invalid: empty help string
+	// Push counter couldn't be registered, no counting will happen: descriptor Desc{fqName: "repository_pushes", help: "", constLabels: {}, variableLabels: []} is invalid: empty help string
 }
 
 func ExampleCounterVec() {
@@ -109,8 +109,8 @@ func ExampleCounterVec() {
 
 	httpReqs := prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name:        "http_requests",
-			Help:        "How many http requests processed, partitioned by status code and http method.",
+			Name:        "http_requests_total",
+			Help:        "How many HTTP requests processed, partitioned by status code and http method.",
 			ConstLabels: prometheus.Labels{"env": *binaryVersion},
 		},
 		[]string{"code", "method"},
@@ -126,11 +126,12 @@ func ExampleCounterVec() {
 	for i := 0; i < 1000000; i++ {
 		m.Inc()
 	}
-	// Delete a metric from the vector. If you have kept a handle to that
-	// metric before (as above), updates via that handle will go unseen
-	// (even if you re-create a metric with the same label set later).
+	// Delete a metric from the vector. If you have previously kept a handle
+	// to that metric (as above), future updates via that handle will go
+	// unseen (even if you re-create a metric with the same label set
+	// later).
 	httpReqs.DeleteLabelValues("200", "GET")
-	// Same thing with the more verbose Labels syntax
+	// Same thing with the more verbose Labels syntax.
 	httpReqs.Delete(prometheus.Labels{"method": "GET", "code": "200"})
 }
 
@@ -138,14 +139,14 @@ func ExampleInstrumentHandler() {
 	// Handle the "/doc" endpoint with the standard http.FileServer handler.
 	// By wrapping the handler with InstrumentHandler, request count,
 	// request and response sizes, and request latency are automatically
-	// exported to Prometheus, partitioned by http status code and method
+	// exported to Prometheus, partitioned by HTTP status code and method
 	// and by the handler name (here "fileserver").
 	http.Handle("/doc", prometheus.InstrumentHandler(
 		"fileserver", http.FileServer(http.Dir("/usr/share/doc")),
 	))
-	// But of course, the Prometheus handler still has to be made handle the
+	// The Prometheus handler still has to be registered to handle the
 	// "/metrics" endpoint. The handler returned by prometheus.Handler() is
-	// already instrumented - with "prometheus" as handler name. In this
+	// already instrumented - with "prometheus" as the handler name. In this
 	// example, we want the handler name to be "metrics", so we instrument
 	// the uninstrumented Prometheus handler ourselves.
 	http.Handle("/metrics", prometheus.InstrumentHandler(
@@ -179,12 +180,12 @@ func ExampleRegister() {
 	} else {
 		fmt.Println("taskCounter registered.")
 	}
-	// Don't forget to tell the http server about the Prometheus handler.
+	// Don't forget to tell the HTTP server about the Prometheus handler.
 	// (In a real program, you still need to start the http server...)
 	http.Handle("/metrics", prometheus.Handler())
 
-	// Now you can start workers and give every one of them a pointer to cnt
-	// and let it increment it whenever it completes a task.
+	// Now you can start workers and give every one of them a pointer to
+	// taskCounter and let it increment it whenever it completes a task.
 	taskCounter.Inc() // This has to happen somewhere in the worker code.
 
 	// But wait, you want to see how individual workers perform. So you need
@@ -251,7 +252,7 @@ func ExampleRegister() {
 
 	// Note that something like WithLabelValues("42", "spurious arg") would
 	// panic (because you have provided too many label values). If you want
-	// to get an error instead, use GetMetricWithLabelValuen(...) instead.
+	// to get an error instead, use GetMetricWithLabelValues(...) instead.
 	notMyCounter, err := taskCounterVec.GetMetricWithLabelValues("42", "spurious arg")
 	if err != nil {
 		fmt.Println("Worker initialization failed:", err)
@@ -308,9 +309,9 @@ func ExampleRegister() {
 
 	// Output:
 	// taskCounter registered.
-	// taskCounterVec not registered: a previously registered descriptor with the same fully-qualified name as Desc{fqName: "worker_pool_completed_tasks_total", help: "Total number of tasks completed.", constLabels: {}, variableLables: [worker_id]} has different label names or a different help string
+	// taskCounterVec not registered: a previously registered descriptor with the same fully-qualified name as Desc{fqName: "worker_pool_completed_tasks_total", help: "Total number of tasks completed.", constLabels: {}, variableLabels: [worker_id]} has different label names or a different help string
 	// taskCounter unregistered.
-	// taskCounterVec not registered: a previously registered descriptor with the same fully-qualified name as Desc{fqName: "worker_pool_completed_tasks_total", help: "Total number of tasks completed.", constLabels: {}, variableLables: [worker_id]} has different label names or a different help string
+	// taskCounterVec not registered: a previously registered descriptor with the same fully-qualified name as Desc{fqName: "worker_pool_completed_tasks_total", help: "Total number of tasks completed.", constLabels: {}, variableLabels: [worker_id]} has different label names or a different help string
 	// taskCounterVec registered.
 	// Worker initialization failed: inconsistent label cardinality
 	// notMyCounter is nil.

@@ -106,16 +106,16 @@ func (m *UntypedVec) GetMetricWith(labels Labels) (Untyped, error) {
 }
 
 // WithLabelValues works as GetMetricWithLabelValues, but panics where
-// GetMetricWithLabelValues would have returned an error. That allows shortcuts
-// like
-//     myVec.WithLabelValues("foo", "bar").Add(42)
+// GetMetricWithLabelValues would have returned an error. By not returning an
+// error, WithLabelValues allows shortcuts like
+//     myVec.WithLabelValues("404", "GET").Add(42)
 func (m *UntypedVec) WithLabelValues(lvs ...string) Untyped {
 	return m.MetricVec.WithLabelValues(lvs...).(Untyped)
 }
 
-// With works as GetMetricWith, but panics where GetMetricWithLabels would
-// have returned an error. That allows shortcuts like
-//     myVec.With(Labels{"dings": "foo", "bums": "bar"}).Add(42)
+// With works as GetMetricWith, but panics where GetMetricWithLabels would have
+// returned an error. By not returning an error, With allows shortcuts like
+//     myVec.With(Labels{"code": "404", "method": "GET"}).Add(42)
 func (m *UntypedVec) With(labels Labels) Untyped {
 	return m.MetricVec.With(labels).(Untyped)
 }

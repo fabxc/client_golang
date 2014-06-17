@@ -24,14 +24,14 @@ var (
 // Labels represents a collection of label name -> value mappings. This type is
 // commonly used with the With(Labels) and GetMetricWith(Labels) methods of
 // metric vector Collectors, e.g.:
-//     myVec.With(Labels{"dings": "foo", "bums": "bar"}).Add(42)
+//     myVec.With(Labels{"code": "404", "method": "GET"}).Add(42)
 //
 // The other use-case is the specification of constant label pairs in Opts or to
 // create a Desc.
 type Labels map[string]string
 
-// Desc is a the descriptor used by every Prometheus Metric. It is essentially
-// the immutable meta-data oy a Metric. The normal Metric implementations
+// Desc is the descriptor used by every Prometheus Metric. It is essentially
+// the immutable meta-data of a Metric. The normal Metric implementations
 // included in this package manage their Desc under the hood. Users only have to
 // deal with Desc if they use advanced features like the ExpvarCollector or
 // custom Collectors and Metrics.
@@ -172,7 +172,7 @@ func (d *Desc) String() string {
 		)
 	}
 	return fmt.Sprintf(
-		"Desc{fqName: %q, help: %q, constLabels: {%s}, variableLables: %v}",
+		"Desc{fqName: %q, help: %q, constLabels: {%s}, variableLabels: %v}",
 		d.fqName,
 		d.help,
 		strings.Join(lpStrings, ","),

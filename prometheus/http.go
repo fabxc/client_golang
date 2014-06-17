@@ -26,7 +26,7 @@ var (
 	reqCnt = NewCounterVec(
 		CounterOpts{
 			Subsystem: "http",
-			Name:      "request_total",
+			Name:      "requests_total",
 			Help:      "Total number of HTTP requests made.",
 		},
 		instLabels,
@@ -35,8 +35,8 @@ var (
 	reqDur = NewSummaryVec(
 		SummaryOpts{
 			Subsystem: "http",
-			Name:      "request_duration_seconds",
-			Help:      "The HTTP request latencies in seconds.",
+			Name:      "request_duration_microseconds",
+			Help:      "The HTTP request latencies in microseconds.",
 		},
 		instLabels,
 	)
@@ -45,7 +45,7 @@ var (
 		SummaryOpts{
 			Subsystem: "http",
 			Name:      "request_size_bytes",
-			Help:      "The HTTP request sizes in bytes..",
+			Help:      "The HTTP request sizes in bytes.",
 		},
 		instLabels,
 	)
@@ -84,11 +84,11 @@ func nowSeries(t ...time.Time) nower {
 	})
 }
 
-// InstrumentHandler wraps the given http handler for instrumentation. It
+// InstrumentHandler wraps the given HTTP handler for instrumentation. It
 // registers four metric vector collectors (if not already done) and reports
 // http metrics to the (newly or already) registered collectors:
-// http_request_total (CounterVec), http_request_duration_seconds (SummaryVec),
-// http_request_size_bytes (SummaryVec), http_response_size_bytes
+// http_requests_total (CounterVec), http_request_duration_microseconds
+// (SummaryVec), http_request_size_bytes (SummaryVec), http_response_size_bytes
 // (SummaryVec). Each has three labels: handler, method, code. The value of the
 // handler label is set by the handlerName parameter of this function.
 func InstrumentHandler(handlerName string, handler http.Handler) http.HandlerFunc {

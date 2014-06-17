@@ -78,8 +78,8 @@
 // never change their value (which is only useful under special circumstances,
 // see documentation of the Opts type).
 //
-// The Untyped metric behaves pretty much like a Gauge, but signals the
-// Prometheus server not to assume anything about its type.
+// The Untyped metric behaves like a Gauge, but signals the Prometheus server
+// not to assume anything about its type.
 //
 // Functions to fine-tune how the metric registry works: EnableCollectChecks,
 // PanicOnCollectError, Register, Unregister, SetMetricFamilyInjectionHook.
@@ -89,12 +89,12 @@
 // fundamental unit in the Prometheus data model: a sample at a point in time
 // together with its meta-data (like its fully-qualified name and any number of
 // pairs of label name and label value) that knows how to marshal itself into a
-// data transmission object (aka DTO, implemented as a protocol buffer). A
-// Collector gets registered with the Prometheus registry and manages the
-// collection of one or more Metrics. Many parts of this package are building
-// blocks for Metrics and Collectors. Desc is the metric descriptor, actually
-// used by all metrics under the hood, and by Collectors to describe the Metrics
-// to be collected, but only to be dealt with by users if they implement their own
+// data transfer object (aka DTO, implemented as a protocol buffer). A Collector
+// gets registered with the Prometheus registry and manages the collection of
+// one or more Metrics. Many parts of this package are building blocks for
+// Metrics and Collectors. Desc is the metric descriptor, actually used by all
+// metrics under the hood, and by Collectors to describe the Metrics to be
+// collected, but only to be dealt with by users if they implement their own
 // Metrics or Collectors. To create a Desc, the BuildFQName function will come
 // in handy. Other useful components for Metric and Collector implementation
 // include: LabelPairSorter to sort the DTO version of label pairs,

@@ -109,8 +109,8 @@ func NewClusterManager(zone string) *ClusterManager {
 		RAMUsage: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Subsystem:   "clustermanager",
-				Name:        "ram_usage_megabytes",
-				Help:        "RAM usage in MiB as reported to the cluster manager",
+				Name:        "ram_usage_bytes",
+				Help:        "RAM usage as reported to the cluster manager",
 				ConstLabels: prometheus.Labels{"zone": zone},
 			},
 			[]string{"host"},

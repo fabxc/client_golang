@@ -52,7 +52,7 @@ type ExpvarCollector struct {
 // Prometheus label. The values in the expvar map must be numbers or bools again
 // as above.
 //
-// For descriptors with more than one variable lable, the expvar must be a
+// For descriptors with more than one variable label, the expvar must be a
 // nested expvar map, i.e. where the values of the topmost map are maps again
 // etc. until a depth is reached that corresponds to the number of labels. The
 // leaves of that structure must be numbers or bools as above to serve as the

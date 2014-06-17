@@ -76,14 +76,14 @@ const (
 	contentTypeHeader = "Content-Type"
 )
 
-// Handler returns the handler for the global Prometheus registry. It is already
-// instrumented with InstrumentHandler (using "prometheus" as handler
+// Handler returns the HTTP handler for the global Prometheus registry. It is
+// already instrumented with InstrumentHandler (using "prometheus" as handler
 // name). Usually the handler is used to handle the "/metrics" endpoint.
 func Handler() http.Handler {
 	return InstrumentHandler("prometheus", defRegistry)
 }
 
-// UninstrumentedHandler works in the same way as Handler, but the returned
+// UninstrumentedHandler works in the same way as Handler, but the returned HTTP
 // handler is not instrumented. This is useful if no instrumentation is desired
 // (for whatever reason) or if the instrumentation has to happen with a
 // different handler name (or with a different instrumentation approach
@@ -149,8 +149,8 @@ func Unregister(c Collector) bool {
 
 // SetMetricFamilyInjectionHook sets a function that is called whenever metrics
 // are collected. The hook function must be set before metrics collection begins
-// (i.e. call SetMetricFamilyInjectionHook before setting the http handler.) The
-// MetricsFamily protobufs returned by the hook function are added to the
+// (i.e. call SetMetricFamilyInjectionHook before setting the HTTP handler.) The
+// MetricFamily protobufs returned by the hook function are added to the
 // delivered metrics. Each returned MetricFamily must have a unique name (also
 // taking into account the MetricFamilies created in the regular way).
 //
@@ -169,12 +169,13 @@ func PanicOnCollectError(b bool) {
 	defRegistry.panicOnCollectError = b
 }
 
-// EnableCollectChecks enables or disables certain consistency checks during
-// metrics collection. By default, those checks are not enabled because they
-// inflict a performance penalty, and the errors they check for can only happen
-// if the used Metric and Collector types have internal programming
-// errors. While working with custom Collectors or Metrics whose correctness is
-// not well established yet, it can be helpful to enable the checks.
+// EnableCollectChecks enables (or disables) additional consistency checks
+// during metrics collection. By default, These additional checks are not
+// enabled by default because they inflict a performance penalty and the errors
+// they check for can only happen if the used Metric and Collector types have
+// internal programming errors. It can be helpful to enable these checks while
+// working with custom Collectors or Metrics whose correctness is not well
+// established yet.
 func EnableCollectChecks(b bool) {
 	defRegistry.collectChecksEnabled = b
 }
