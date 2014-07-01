@@ -26,6 +26,7 @@ import (
 	"hash/fnv"
 	"io"
 	"net/http"
+	"net/url"
 	"sort"
 	"sync"
 
@@ -316,6 +317,36 @@ func (r *registry) Unregister(c Collector) bool {
 	// dimHashesByName is left untouched as those must be consistent
 	// throughout the lifetime of a program.
 	return true
+}
+
+func (r *registry) Push(job, instance, addr string, keepMetrics bool) error {
+	u := fmt.Sprintf("http://%s/metrics/jobs/%s", addr, url.QueryEscape(job))
+	method := "PUT"
+	if keepMetrics {
+		method = "POST"
+	}
+	if instance != "" {
+		u += "/instances/" + url.QueryEscape(instance)
+	}
+	buf := r.getBuf()
+	defer r.giveBuf(buf)
+	if _, err := r.writePB(buf, text.WriteProtoDelimited); err != nil {
+		if r.panicOnCollectError {
+			panic(err)
+		}
+		return err
+	}
+	req, err := http.NewRequest(method, u, buf)
+	req.Header.Set("Content-Type", DelimitedTelemetryContentType)
+	resp, err := http.DefaultClient.Do(req)
+	defer resp.Body.Close()
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode != 202 {
+		return fmt.Errorf("unexpected status code %d while pushing to %s", resp.StatusCode, u)
+	}
+	return nil
 }
 
 func (r *registry) ServeHTTP(w http.ResponseWriter, req *http.Request) {
