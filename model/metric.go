@@ -25,24 +25,12 @@ type Metric map[LabelName]LabelValue
 
 // Equal compares the fingerprints of both metrics.
 func (m Metric) Equal(o Metric) bool {
-	lFingerprint := &Fingerprint{}
-	rFingerprint := &Fingerprint{}
-
-	lFingerprint.LoadFromMetric(m)
-	rFingerprint.LoadFromMetric(o)
-
-	return lFingerprint.Equal(rFingerprint)
+	return m.Fingerprint().Equal(o.Fingerprint())
 }
 
 // Before compares the fingerprints of both metrics.
 func (m Metric) Before(o Metric) bool {
-	lFingerprint := &Fingerprint{}
-	rFingerprint := &Fingerprint{}
-
-	lFingerprint.LoadFromMetric(m)
-	rFingerprint.LoadFromMetric(o)
-
-	return lFingerprint.Less(rFingerprint)
+	return m.Fingerprint().Less(o.Fingerprint())
 }
 
 func (m Metric) String() string {
@@ -64,6 +52,12 @@ func (m Metric) String() string {
 		sort.Strings(labelStrings)
 		return fmt.Sprintf("%s{%s}", metricName, strings.Join(labelStrings, ", "))
 	}
+}
+
+func (m Metric) Fingerprint() Fingerprint {
+	var fp Fingerprint
+	fp.LoadFromMetric(m)
+	return fp
 }
 
 // MergeFromLabelSet merges a label set into this Metric, prefixing a collision
