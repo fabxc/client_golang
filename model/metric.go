@@ -34,20 +34,25 @@ func (m Metric) Before(o Metric) bool {
 }
 
 func (m Metric) String() string {
-	metricName, ok := m[MetricNameLabel]
-	if !ok {
-		panic("Tried to print metric without name")
+	metricName, hasName := m[MetricNameLabel]
+	numLabels := len(m) - 1
+	if !hasName {
+		numLabels = len(m)
 	}
-	labelStrings := make([]string, 0, len(m)-1)
+	labelStrings := make([]string, 0, numLabels)
 	for label, value := range m {
 		if label != MetricNameLabel {
 			labelStrings = append(labelStrings, fmt.Sprintf("%s=%q", label, value))
 		}
 	}
 
-	switch len(labelStrings) {
+	switch numLabels {
 	case 0:
-		return string(metricName)
+		if hasName {
+			return string(metricName)
+		} else {
+			return "{}"
+		}
 	default:
 		sort.Strings(labelStrings)
 		return fmt.Sprintf("%s{%s}", metricName, strings.Join(labelStrings, ", "))
