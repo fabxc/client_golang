@@ -38,8 +38,8 @@ import (
 
 	dto "github.com/prometheus/client_model/go"
 
-	"github.com/prometheus/client_golang/model"
-	"github.com/prometheus/client_golang/text"
+	"github.com/prometheus/common/model"
+	"github.com/prometheus/common/textproto"
 )
 
 var (
@@ -346,7 +346,7 @@ func (r *registry) Push(job, instance, pushURL, method string) error {
 	}
 	buf := r.getBuf()
 	defer r.giveBuf(buf)
-	if _, err := r.writePB(buf, text.WriteProtoDelimited); err != nil {
+	if _, err := r.writePB(buf, textproto.WriteProtoDelimited); err != nil {
 		if r.panicOnCollectError {
 			panic(err)
 		}
@@ -695,23 +695,23 @@ func chooseEncoder(req *http.Request) (encoder, string) {
 			accept.Params["proto"] == "io.prometheus.client.MetricFamily":
 			switch accept.Params["encoding"] {
 			case "delimited":
-				return text.WriteProtoDelimited, DelimitedTelemetryContentType
+				return textproto.WriteProtoDelimited, DelimitedTelemetryContentType
 			case "text":
-				return text.WriteProtoText, ProtoTextTelemetryContentType
+				return textproto.WriteProtoText, ProtoTextTelemetryContentType
 			case "compact-text":
-				return text.WriteProtoCompactText, ProtoCompactTextTelemetryContentType
+				return textproto.WriteProtoCompactText, ProtoCompactTextTelemetryContentType
 			default:
 				continue
 			}
 		case accept.Type == "text" &&
 			accept.SubType == "plain" &&
 			(accept.Params["version"] == "0.0.4" || accept.Params["version"] == ""):
-			return text.MetricFamilyToText, TextTelemetryContentType
+			return textproto.MetricFamilyToText, TextTelemetryContentType
 		default:
 			continue
 		}
 	}
-	return text.MetricFamilyToText, TextTelemetryContentType
+	return textproto.MetricFamilyToText, TextTelemetryContentType
 }
 
 // decorateWriter wraps a writer to handle gzip compression if requested.  It

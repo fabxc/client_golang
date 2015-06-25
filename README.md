@@ -13,7 +13,7 @@ For instrumenting your Go application code with Prometheus metrics, see the
 ## Consuming exported metrics
 
 If you want to process metrics exported by a Prometheus client, see the
-[consumption library documentation](https://godoc.org/github.com/prometheus/client_golang/extraction).
+[consumption library documentation](https://godoc.org/github.com/prometheus/common/extraction).
 (The Prometheus server is using that library.)
 
 # Testing
